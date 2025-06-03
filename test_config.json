@@ -1,0 +1,67 @@
+{
+  "team_identification": {
+    "enabled": true,
+    "apply_to_templates": [
+      "standup",
+      "project",
+      "review"
+    ],
+    "confidence_threshold": 0.5,
+    "fuzzy_matching": true,
+    "partial_name_matching": true
+  },
+  "team_members": {
+    "development": {
+      "vlad": {
+        "full_name": "Владислав",
+        "role": "Developer",
+        "team": "development",
+        "aliases": [
+          "Влад",
+          "Владислав",
+          "влад",
+          "владислав"
+        ],
+        "voice_keywords": [
+          "влад",
+          "владислав",
+          "vlad"
+        ]
+      },
+      "sasha": {
+        "full_name": "Александр",
+        "role": "Developer",
+        "team": "development",
+        "aliases": [
+          "Саша",
+          "Александр",
+          "саша",
+          "александр"
+        ],
+        "voice_keywords": [
+          "саша",
+          "александр",
+          "sasha"
+        ]
+      }
+    },
+    "testing": {
+      "yulia": {
+        "full_name": "Юлия",
+        "role": "QA",
+        "team": "testing",
+        "aliases": [
+          "Юля",
+          "Юлия",
+          "юля",
+          "юлия"
+        ],
+        "voice_keywords": [
+          "юля",
+          "юлия",
+          "yulia"
+        ]
+      }
+    }
+  }
+}

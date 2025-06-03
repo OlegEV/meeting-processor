@@ -1,0 +1,50 @@
+# Multi-stage build для Meeting Processor Web App
+FROM python:3.11-slim
+
+# Устанавливаем системные зависимости
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создаем пользователя для безопасности
+RUN useradd -m -u 1000 app
+
+# Устанавливаем рабочую директорию
+WORKDIR /app
+
+# Копируем requirements
+COPY requirements.txt .
+
+# Устанавливаем Python зависимости
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Копируем исходный код приложения
+COPY . .
+
+# Создаем необходимые директории
+RUN mkdir -p logs web_uploads web_output && \
+    chown -R app:app /app
+
+# Переключаемся на пользователя app
+USER app
+
+# Настраиваем переменные окружения
+ENV FLASK_APP=wsgi.py
+ENV FLASK_ENV=production
+ENV PYTHONPATH=/app
+ENV GUNICORN_WORKERS=4
+ENV GUNICORN_THREADS=2
+ENV GUNICORN_TIMEOUT=300
+ENV GUNICORN_MAX_REQUESTS=1000
+ENV GUNICORN_MAX_REQUESTS_JITTER=50
+
+# Открываем порт
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Команда запуска
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "wsgi:application"]

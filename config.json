@@ -1,0 +1,69 @@
+{
+  "paths": {
+    "input_file": "20250526.mp3",
+    "output_dir": "meeting_output",
+    "names_config": "names_config.json",
+    "templates_config": "templates_config.json",
+    "api_keys_config": "api_keys.json",
+    "team_config": "team_config.json"
+   },
+
+  "settings": {
+    "keep_audio_file": false,
+    "language": "ru",
+    "deepgram_model": "nova-2",
+    "claude_model": "claude-sonnet-4-20250514",
+    "deepgram_timeout_seconds": 300,
+    "chunk_duration_minutes": 15,
+    "max_file_size_mb": 25,
+    "max_duration_minutes": 15,
+    "request_pause_seconds": 5,
+    "max_retries": 3,
+    "template_type": "standard"
+  },
+
+  "deepgram_options": {
+    "punctuate": true,
+    "diarize": true,
+    "smart_format": true,
+    "paragraphs": true,
+    "utterances": true,
+    "summarize": false,
+    "detect_language": false
+  },
+
+  "template_settings": {
+    "auto_detect_meeting_type": false,
+    "include_technical_info": true,
+    "include_file_datetime": true,
+    "max_tokens": 2000,
+    "fallback_template": "standard"
+  },
+
+  "supported_formats": {
+    "video": [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".webm"],
+    "native_audio": [".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg"],
+    "convert_audio": [".wma", ".opus"]
+  },
+
+  "claude_models": {
+    "sonnet": "claude-3-sonnet-20240229",
+    "opus": "claude-3-opus-20240229",
+    "haiku": "claude-3-haiku-20240307",
+    "sonnet-4": "claude-sonnet-4-20250514"
+  },
+
+  "template_examples": {
+    "standard": "Универсальный шаблон для любых встреч",
+    "business": "Официальный протокол для деловых встреч",
+    "project": "Фокус на управлении проектами и задачами",
+    "standup": "Краткий формат для ежедневных стендапов",
+    "interview": "Структурированный отчет об интервью",
+    "brainstorm": "Организация идей и креативных сессий",
+    "review": "Ретроспективы и анализ результатов",
+    "planning": "Стратегическое планирование и постановка целей",
+    "technical": "Технические обсуждения и архитектурные решения",
+    "sales": "Встречи по продажам и работе с клиентами",
+    "auto": "Автоматическое определение типа встречи"
+  }
+}

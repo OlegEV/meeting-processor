@@ -1,0 +1,44 @@
+# Dockerfile для Meeting Telegram Bot
+FROM python:3.11-slim
+
+# Устанавливаем системные зависимости
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создаем пользователя для безопасности
+RUN useradd -m -u 1000 app
+
+# Устанавливаем рабочую директорию
+WORKDIR /app
+
+# Копируем файл зависимостей
+COPY requirements.txt .
+
+# Устанавливаем Python зависимости
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Копируем исходный код Python
+COPY *.py ./
+
+# Создаем директории для логов и временных файлов
+RUN mkdir -p /app/logs /app/temp_bot_files /app/meeting_output && \
+    chown -R app:app /app
+
+# Переключаемся на пользователя meetingbot
+USER app
+
+# Устанавливаем переменные окружения
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Открываем порт (если нужен webhook)
+EXPOSE 8443
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)" || exit 1
+
+# Команда запуска
+CMD ["python", "telegram_bot.py"]

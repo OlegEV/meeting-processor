@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile.web
+Dockerfile.bot
+
+docker-compose.yml
+.dockerignore
+
+# Environment
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+audio/
+source/
+temp_files/
+temp_bot_files/
+meeting_output/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Documentation
+README.md
+*.md
+
+# Windows
+run_bot.bat
+setup_bot.bat
+
+# Output directories
+output/
+meeting_output/

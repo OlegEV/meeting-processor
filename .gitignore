@@ -192,3 +192,8 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+#localfiles
+api_keys.json 
+bot_config.json 
+team_config.json 
