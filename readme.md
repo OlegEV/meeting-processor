@@ -32,10 +32,6 @@ python install_ffmpeg.py
 
 ```json
 {
-  "api_keys": {
-    "deepgram": "ваш_ключ_deepgram",
-    "claude": "ваш_ключ_claude"
-  },
   "paths": {
     "input_file": "path/to/your/meeting.mp4",
     "output_dir": "meeting_output",
@@ -62,6 +58,20 @@ python install_ffmpeg.py
   "Спикер 1": "Мария Сидорова"
 }
 ```
+
+### 2. Конфигурация токенов доступа (names_config.json)
+
+Отредактируйте файл `api_keys.json`:
+
+```json
+{
+  "api_keys": {
+    "deepgram": "ваш_ключ_deepgram",
+    "claude": "ваш_ключ_claude"
+  }
+}
+```
+
 
 **Как определить, какой Speaker соответствует какому участнику:**
 
