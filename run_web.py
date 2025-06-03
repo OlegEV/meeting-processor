@@ -286,6 +286,53 @@ class WorkingMeetingWebApp:
                 flash(f'Ошибка скачивания файла: {str(e)}', 'error')
                 return redirect(url_for('status', job_id=job_id))
         
+        @self.app.route('/view/<job_id>/<file_type>')
+        def view_file(job_id: str, file_type: str):
+            """Просмотр файлов в веб-интерфейсе"""
+            job = self.get_job_status(job_id)
+            if not job:
+                flash('Задача не найдена', 'error')
+                return redirect(url_for('index'))
+            
+            if job['status'] != 'completed':
+                flash('Обработка еще не завершена', 'error')
+                return redirect(url_for('status', job_id=job_id))
+            
+            try:
+                if file_type == 'transcript':
+                    file_path = job.get('transcript_file')
+                    file_title = "Транскрипт встречи"
+                    is_markdown = False
+                elif file_type == 'summary':
+                    file_path = job.get('summary_file')
+                    file_title = "Протокол встречи"
+                    is_markdown = True
+                else:
+                    flash('Неизвестный тип файла', 'error')
+                    return redirect(url_for('status', job_id=job_id))
+                
+                if not file_path or not os.path.exists(file_path):
+                    flash('Файл не найден', 'error')
+                    return redirect(url_for('status', job_id=job_id))
+                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                return render_template_string(
+                    self.get_view_template(),
+                    content=content,
+                    file_title=file_title,
+                    filename=job['filename'],
+                    job_id=job_id,
+                    file_type=file_type,
+                    is_markdown=is_markdown
+                )
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка просмотра файла: {e}")
+                flash(f'Ошибка просмотра файла: {str(e)}', 'error')
+                return redirect(url_for('status', job_id=job_id))
+        
         @self.app.route('/jobs')
         def jobs_list():
             """Список всех задач"""
@@ -519,6 +566,97 @@ class WorkingMeetingWebApp:
 </html>
         '''
     
+    def get_view_template(self):
+        """Возвращает HTML шаблон для просмотра файлов"""
+        return '''
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ file_title }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    {% if is_markdown %}
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .markdown-content {
+            line-height: 1.6;
+        }
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+            color: #0d6efd;
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .markdown-content ul, .markdown-content ol {
+            margin-bottom: 1rem;
+        }
+        .markdown-content li {
+            margin-bottom: 0.25rem;
+        }
+        .markdown-content code {
+            background-color: #f8f9fa;
+            padding: 0.125rem 0.25rem;
+            border-radius: 0.25rem;
+        }
+        .markdown-content blockquote {
+            border-left: 4px solid #0d6efd;
+            padding-left: 1rem;
+            margin: 1rem 0;
+            background-color: #f8f9fa;
+            padding: 0.5rem 1rem;
+        }
+    </style>
+    {% endif %}
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h4><i class="fas fa-file-alt me-2"></i>{{ file_title }}</h4>
+                <div>
+                    <a href="/download/{{ job_id }}/{{ file_type }}" class="btn btn-light btn-sm me-2">
+                        <i class="fas fa-download me-1"></i>Скачать
+                    </a>
+                    <a href="/status/{{ job_id }}" class="btn btn-outline-light btn-sm">
+                        <i class="fas fa-arrow-left me-1"></i>Назад
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <small class="text-muted">
+                        <i class="fas fa-file me-1"></i>Файл: {{ filename }}
+                    </small>
+                </div>
+                
+                {% if is_markdown %}
+                    <div id="markdown-content" class="markdown-content"></div>
+                    <script>
+                        const markdownText = {{ content|tojson }};
+                        document.getElementById('markdown-content').innerHTML = marked.parse(markdownText);
+                    </script>
+                {% else %}
+                    <pre class="bg-light p-3 rounded" style="white-space: pre-wrap; max-height: 70vh; overflow-y: auto;">{{ content }}</pre>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+        '''
+    
     def get_status_template(self):
         """Возвращает HTML шаблон страницы статуса"""
         return '''
@@ -576,6 +714,18 @@ class WorkingMeetingWebApp:
                         </div>
 
                         {% if job.status == 'completed' %}
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <a href="/view/{{ job_id }}/transcript" class="btn btn-outline-info w-100 mb-2">
+                                        <i class="fas fa-eye me-2"></i>Просмотреть транскрипт
+                                    </a>
+                                </div>
+                                <div class="col-md-6">
+                                    <a href="/view/{{ job_id }}/summary" class="btn btn-info w-100 mb-2">
+                                        <i class="fas fa-eye me-2"></i>Просмотреть протокол
+                                    </a>
+                                </div>
+                            </div>
                             <div class="row">
                                 <div class="col-md-6">
                                     <a href="/download/{{ job_id }}/transcript" class="btn btn-outline-primary w-100 mb-2">
