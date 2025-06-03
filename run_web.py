@@ -333,6 +333,57 @@ class WorkingMeetingWebApp:
                 flash(f'Ошибка просмотра файла: {str(e)}', 'error')
                 return redirect(url_for('status', job_id=job_id))
         
+        @self.app.route('/generate_protocol/<job_id>', methods=['POST'])
+        def generate_protocol(job_id: str):
+            """Генерация протокола в новом шаблоне из готового транскрипта"""
+            job = self.get_job_status(job_id)
+            if not job:
+                flash('Задача не найдена', 'error')
+                return redirect(url_for('index'))
+            
+            if job['status'] != 'completed':
+                flash('Обработка еще не завершена', 'error')
+                return redirect(url_for('status', job_id=job_id))
+            
+            new_template = request.form.get('new_template')
+            if not new_template:
+                flash('Не выбран шаблон', 'error')
+                return redirect(url_for('status', job_id=job_id))
+            
+            # Проверяем наличие транскрипта
+            transcript_file = job.get('transcript_file')
+            if not transcript_file or not os.path.exists(transcript_file):
+                flash('Файл транскрипта не найден', 'error')
+                return redirect(url_for('status', job_id=job_id))
+            
+            try:
+                # Создаем новый ID для задачи генерации протокола
+                protocol_job_id = f"{job_id}_protocol_{new_template}"
+                
+                # Создаем задачу генерации протокола
+                with self.jobs_lock:
+                    self.processing_jobs[protocol_job_id] = {
+                        'status': 'processing',
+                        'filename': f"{job['filename']} (протокол {new_template})",
+                        'template': new_template,
+                        'original_job_id': job_id,
+                        'transcript_file': transcript_file,
+                        'created_at': datetime.now(),
+                        'progress': 0,
+                        'message': f'Генерация протокола в шаблоне "{new_template}"...'
+                    }
+                
+                # Запускаем генерацию протокола в отдельном потоке
+                self.executor.submit(self.generate_protocol_sync, protocol_job_id, transcript_file, new_template)
+                
+                flash(f'Запущена генерация протокола в шаблоне "{new_template}"', 'success')
+                return redirect(url_for('status', job_id=protocol_job_id))
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка запуска генерации протокола: {e}")
+                flash(f'Ошибка запуска генерации протокола: {str(e)}', 'error')
+                return redirect(url_for('status', job_id=job_id))
+        
         @self.app.route('/jobs')
         def jobs_list():
             """Список всех задач"""
@@ -458,6 +509,68 @@ class WorkingMeetingWebApp:
                     os.remove(job['file_path'])
             except Exception as e:
                 logger.warning(f"Не удалось удалить временный файл: {e}")
+    
+    def generate_protocol_sync(self, job_id: str, transcript_file: str, template_type: str):
+        """Синхронная генерация протокола из транскрипта в отдельном потоке"""
+        job = self.get_job_status(job_id)
+        if not job:
+            return
+        
+        try:
+            self.update_job_status(job_id, status='processing', progress=20, message='Инициализация генерации протокола...')
+            
+            # Создаем выходную директорию для нового протокола
+            output_dir = self.output_folder / job_id
+            output_dir.mkdir(exist_ok=True)
+            
+            # Создаем процессор только для генерации протокола
+            processor = MeetingProcessor(
+                deepgram_api_key="dummy",  # Не нужен для генерации протокола
+                claude_api_key=self.claude_key,
+                claude_model=self.processing_settings.get('claude_model', 'claude-sonnet-4-20250514'),
+                template_type=template_type,
+                templates_config_file=self.config.get("paths", {}).get("templates_config", "templates_config.json"),
+                team_config_file=self.config.get("paths", {}).get("team_config", "team_config.json")
+            )
+            
+            self.update_job_status(job_id, progress=50, message=f'Генерация протокола в шаблоне "{template_type}"...')
+            
+            # Генерируем протокол из транскрипта
+            success = processor.generate_protocol_from_transcript(
+                transcript_file_path=transcript_file,
+                output_dir=str(output_dir),
+                template_type=template_type
+            )
+            
+            if success:
+                # Ищем сгенерированный протокол
+                all_files = list(output_dir.glob("*"))
+                summary_files = [f for f in all_files if "_summary.md" in f.name]
+                
+                if summary_files:
+                    summary_file = summary_files[0]
+                    
+                    self.update_job_status(job_id,
+                                         status='completed',
+                                         progress=100,
+                                         message='Протокол успешно сгенерирован!',
+                                         transcript_file=transcript_file,  # Ссылка на исходный транскрипт
+                                         summary_file=str(summary_file),
+                                         completed_at=datetime.now())
+                    
+                    logger.info(f"✅ Генерация протокола {job_id} завершена успешно")
+                else:
+                    raise Exception(f"Файл протокола не найден. Есть: {[f.name for f in all_files]}")
+            else:
+                raise Exception("Генерация протокола завершилась с ошибкой")
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка генерации протокола {job_id}: {e}")
+            self.update_job_status(job_id,
+                                 status='error',
+                                 progress=0,
+                                 message=f'Ошибка генерации протокола: {str(e)}',
+                                 error=str(e))
     
     def get_index_template(self):
         """Возвращает HTML шаблон главной страницы"""
@@ -726,7 +839,7 @@ class WorkingMeetingWebApp:
                                     </a>
                                 </div>
                             </div>
-                            <div class="row">
+                            <div class="row mb-3">
                                 <div class="col-md-6">
                                     <a href="/download/{{ job_id }}/transcript" class="btn btn-outline-primary w-100 mb-2">
                                         <i class="fas fa-file-alt me-2"></i>Скачать транскрипт
@@ -738,6 +851,41 @@ class WorkingMeetingWebApp:
                                     </a>
                                 </div>
                             </div>
+                            
+                            <!-- Форма для генерации протокола в новом шаблоне -->
+                            <div class="card border-warning mb-3">
+                                <div class="card-header bg-warning text-dark">
+                                    <h6 class="mb-0"><i class="fas fa-magic me-2"></i>Сгенерировать протокол в другом шаблоне</h6>
+                                </div>
+                                <div class="card-body">
+                                    <form method="POST" action="/generate_protocol/{{ job_id }}">
+                                        <div class="row align-items-end">
+                                            <div class="col-md-8">
+                                                <label for="new_template" class="form-label">Выберите новый шаблон:</label>
+                                                <select class="form-select" name="new_template" required>
+                                                    {% for template_id, description in templates.items() %}
+                                                        {% if template_id != job.template %}
+                                                            <option value="{{ template_id }}">
+                                                                {{ template_id.title() }} - {{ description }}
+                                                            </option>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <button type="submit" class="btn btn-warning w-100">
+                                                    <i class="fas fa-cogs me-2"></i>Сгенерировать
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="form-text mt-2">
+                                            <i class="fas fa-info-circle me-1"></i>
+                                            Будет создан новый протокол на основе существующего транскрипта
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                            
                             <a href="/" class="btn btn-success">
                                 <i class="fas fa-plus me-2"></i>Обработать еще файл
                             </a>
