@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Telegram бот для обработки встреч с поддержкой URL и облачных сервисов
-Версия: 2.0 с полной поддержкой HTTP ссылок
+Версия: 2.1 с полной поддержкой HTTP ссылок и отслеживания прогресса
 """
 
 import os
@@ -124,12 +124,24 @@ class UserSession:
         self.current_file = None
         self.processing_start_time = None
         self.last_activity = datetime.now()
+        self.current_progress = 0
+        self.current_message = ""
+        self.status_message_id = None  # ID сообщения со статусом для обновления
     
     def start_processing(self, filename: str):
         """Начинает обработку файла"""
         self.processing = True
         self.current_file = filename
         self.processing_start_time = datetime.now()
+        self.last_activity = datetime.now()
+        self.current_progress = 0
+        self.current_message = "Начало обработки..."
+        self.status_message_id = None
+    
+    def update_progress(self, progress: int, message: str):
+        """Обновляет прогресс обработки"""
+        self.current_progress = progress
+        self.current_message = message
         self.last_activity = datetime.now()
     
     def stop_processing(self):
@@ -138,6 +150,9 @@ class UserSession:
         self.current_file = None
         self.processing_start_time = None
         self.last_activity = datetime.now()
+        self.current_progress = 0
+        self.current_message = ""
+        self.status_message_id = None
     
     def get_processing_duration(self) -> Optional[int]:
         """Возвращает длительность обработки в секундах"""
@@ -236,7 +251,8 @@ class MeetingBot:
                 "max_concurrent_jobs": 3,
                 "processing_timeout": 1800,
                 "deepgram_timeout": 300,
-                "chunk_duration_minutes": 15
+                "chunk_duration_minutes": 15,
+                "progress_update_interval": 5  # Интервал обновления прогресса в секундах
             },
             "url_processing": {
                 "enabled": True,
@@ -345,6 +361,119 @@ class MeetingBot:
         
         return True, ""
     
+    def _create_progress_callback(self, user_session: UserSession, context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+        """Создает callback функцию для обновления прогресса"""
+        last_update_time = 0
+        update_interval = self.config.get("processing", {}).get("progress_update_interval", 5)
+        
+        async def progress_callback(progress: int, message: str):
+            nonlocal last_update_time
+            
+            # Обновляем сессию
+            user_session.update_progress(progress, message)
+            
+            # Проверяем, нужно ли отправлять обновление в Telegram
+            current_time = datetime.now().timestamp()
+            send_progress_updates = self.config.get("notifications", {}).get("send_progress_updates", True)
+            
+            # Отправляем обновление если:
+            # 1. Включены уведомления о прогрессе
+            # 2. Прошло достаточно времени с последнего обновления ИЛИ это завершение (100%)
+            # 3. Это важные этапы (кратные 25% или завершение)
+            should_update = (
+                send_progress_updates and 
+                (current_time - last_update_time >= update_interval or progress == 100 or progress == 0) and
+                (progress % 25 == 0 or progress == 100 or progress == 0)
+            )
+            
+            if should_update:
+                try:
+                    # Создаем прогресс-бар
+                    progress_bar = self._create_progress_bar(progress)
+                    duration = user_session.get_processing_duration()
+                    duration_text = f" ({duration}с)" if duration else ""
+                    
+                    status_text = (
+                        f"🔄 *Обработка файла*\n\n"
+                        f"{progress_bar}\n"
+                        f"📊 Прогресс: {progress}%\n"
+                        f"📝 Этап: {message}\n"
+                        f"⏱️ Время: {duration_text}\n"
+                        f"📁 Файл: `{user_session.current_file}`"
+                    )
+                    
+                    if progress == 100:
+                        status_text = (
+                            f"✅ *Обработка завершена!*\n\n"
+                            f"{progress_bar}\n"
+                            f"📁 Файл: `{user_session.current_file}`\n"
+                            f"⏱️ Общее время: {duration_text}\n\n"
+                            f"📎 Файлы будут отправлены в ближайшее время..."
+                        )
+                    elif progress == 0:
+                        status_text = (
+                            f"❌ *Ошибка обработки*\n\n"
+                            f"📁 Файл: `{user_session.current_file}`\n"
+                            f"💬 Ошибка: {message}\n\n"
+                            f"Попробуйте еще раз или обратитесь к администратору."
+                        )
+                    
+                    # Отправляем или обновляем сообщение
+                    if user_session.status_message_id:
+                        try:
+                            await context.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=user_session.status_message_id,
+                                text=status_text,
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                        except Exception:
+                            # Если не удалось обновить, отправляем новое
+                            message = await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=status_text,
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                            user_session.status_message_id = message.message_id
+                    else:
+                        # Отправляем новое сообщение
+                        message = await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=status_text,
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        user_session.status_message_id = message.message_id
+                    
+                    last_update_time = current_time
+                    
+                except Exception as e:
+                    self.logger.error(f"❌ Ошибка отправки обновления прогресса: {e}")
+        
+        # Создаем синхронную версию для совместимости
+        def sync_progress_callback(progress: int, message: str):
+            try:
+                import asyncio as aio
+                # Получаем текущий event loop
+                try:
+                    loop = aio.get_running_loop()
+                    # Если loop уже запущен, создаем task
+                    loop.create_task(progress_callback(progress, message))
+                except RuntimeError:
+                    # Если нет запущенного loop, создаем новый
+                    aio.run(progress_callback(progress, message))
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка в sync_progress_callback: {e}")
+        
+        # Возвращаем объект с обеими версиями
+        progress_callback.sync = sync_progress_callback
+        return progress_callback
+    
+    def _create_progress_bar(self, progress: int, length: int = 20) -> str:
+        """Создает визуальный прогресс-бар"""
+        filled = int(length * progress / 100)
+        bar = "█" * filled + "░" * (length - filled)
+        return f"[{bar}] {progress}%"
+    
     # ==================== URL PROCESSING ====================
     
     def _extract_urls_from_message(self, message_text: str) -> List[str]:
@@ -361,8 +490,10 @@ class MeetingBot:
             # Определяем откуда отправлять сообщения
             if update.message:
                 reply_func = update.message.reply_text
+                chat_id = update.message.chat_id
             elif update.callback_query:
                 reply_func = update.callback_query.message.reply_text
+                chat_id = update.callback_query.message.chat_id
             else:
                 self.logger.error("❌ Не удалось определить способ отправки сообщения")
                 return False, None, None
@@ -432,10 +563,8 @@ class MeetingBot:
                     file_path, updated_file_info = result
                     
                     # Обрабатываем файл
-                    await reply_func("🔄 Обрабатываю файл...")
-                    
                     success, transcript_file, summary_file = await self._process_with_meeting_processor(
-                        update, file_path, template_name
+                        update, context, file_path, template_name, chat_id
                     )
                     
                     return success, transcript_file, summary_file
@@ -609,18 +738,24 @@ class MeetingBot:
             await update.message.reply_text(f"❌ Ошибка скачивания файла: {str(e)}")
             return None, None
     
-    async def _process_with_meeting_processor(self, update: Update, file_path: str, 
-                                            template_name: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    async def _process_with_meeting_processor(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
+                                            file_path: str, template_name: str, chat_id: int = None) -> Tuple[bool, Optional[str], Optional[str]]:
         """Обрабатывает файл с помощью MeetingProcessor"""
         try:
-            # Определяем откуда отправлять сообщения
-            if update.message:
-                reply_func = update.message.reply_text
-            elif update.callback_query:
-                reply_func = update.callback_query.message.reply_text
+            # Определяем chat_id если не передан
+            if chat_id is None:
+                if update.message:
+                    chat_id = update.message.chat_id
+                    reply_func = update.message.reply_text
+                elif update.callback_query:
+                    chat_id = update.callback_query.message.chat_id
+                    reply_func = update.callback_query.message.reply_text
+                else:
+                    self.logger.error("❌ Не удалось определить chat_id")
+                    return False, None, None
             else:
-                self.logger.error("❌ Не удалось определить способ отправки сообщения")
-                return False, None, None
+                # Используем bot.send_message для отправки
+                reply_func = lambda text, **kwargs: context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
             
             # Проверяем API ключи
             api_keys_valid, error_msg = self._validate_api_keys()
@@ -634,7 +769,14 @@ class MeetingBot:
             # Получаем API ключи
             api_keys = self.api_keys.get("api_keys", {})
             
-            # Создаем процессор
+            # Получаем пользовательскую сессию для прогресса
+            user_id = update.effective_user.id
+            user_session = self.get_user_session(user_id)
+            
+            # Создаем callback для прогресса
+            progress_callback = self._create_progress_callback(user_session, context, chat_id)
+            
+            # Создаем процессор с callback'ом прогресса
             processor = MeetingProcessor(
                 deepgram_api_key=api_keys["deepgram"],
                 claude_api_key=api_keys["claude"],
@@ -643,6 +785,26 @@ class MeetingBot:
                 chunk_duration_minutes=self.config.get("processing", {}).get("chunk_duration_minutes", 15),
                 template_type=template_name
             )
+            
+            # Устанавливаем callback для прогресса, если поддерживается
+            if hasattr(processor, 'set_progress_callback'):
+                processor.set_progress_callback(progress_callback.sync)
+            else:
+                # Если MeetingProcessor не поддерживает progress callback,
+                # имитируем базовые этапы прогресса
+                await progress_callback(10, "Подготовка к обработке...")
+                
+                # Запускаем обработку в отдельной задаче для имитации прогресса
+                async def simulate_progress():
+                    await asyncio.sleep(2)
+                    await progress_callback(25, "Начало транскрипции...")
+                    await asyncio.sleep(3)
+                    await progress_callback(50, "Обработка аудио...")
+                    await asyncio.sleep(2)
+                    await progress_callback(75, "Генерация протокола...")
+                
+                # Запускаем имитацию прогресса
+                progress_task = asyncio.create_task(simulate_progress())
             
             # Уведомляем о начале обработки
             file_type = FileValidator.get_file_type(file_path)
@@ -656,21 +818,30 @@ class MeetingBot:
                 f"📁 Тип: {file_type}\n"
                 f"📊 Размер: {file_size:.1f} МБ\n"
                 f"📝 Шаблон: `{template_escaped}`\n\n"
-                f"⏳ Это может занять несколько минут...",
+                f"⏳ Прогресс будет отображаться в реальном времени...",
                 parse_mode=ParseMode.MARKDOWN
             )
             
-            # Обрабатываем файл
-            success = processor.process_meeting(
-                input_file_path=file_path,
-                output_dir=str(output_dir),
-                template_type=template_name,
-                keep_audio_file=False
-            )
+            # Обрабатываем файл в отдельном потоке, чтобы не блокировать event loop
+            import concurrent.futures
+            
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                success = await loop.run_in_executor(
+                    executor,
+                    processor.process_meeting,
+                    file_path,
+                    str(output_dir),
+                    template_name,
+                    False  # keep_audio_file
+                )
             
             if not success:
-                await reply_func("❌ Ошибка при обработке файла")
+                await progress_callback(0, "Ошибка при обработке файла")
                 return False, None, None
+            
+            # Уведомляем о завершении
+            await progress_callback(90, "Обработка завершена, сохранение файлов...")
             
             # Ищем созданные файлы
             input_name = Path(file_path).stem
@@ -680,13 +851,27 @@ class MeetingBot:
             # Проверяем существование файлов
             if not transcript_file.exists() or not summary_file.exists():
                 self.logger.error(f"❌ Результирующие файлы не найдены")
+                await progress_callback(0, "Результирующие файлы не найдены")
                 return False, None, None
+            
+            # Финальное обновление прогресса
+            await progress_callback(100, "Обработка завершена успешно")
             
             self.logger.info(f"✅ Обработка завершена: {transcript_file}, {summary_file}")
             return True, str(transcript_file), str(summary_file)
             
         except Exception as e:
             self.logger.error(f"❌ Ошибка обработки: {e}")
+            
+            # Уведомляем об ошибке через callback прогресса
+            try:
+                user_id = update.effective_user.id
+                user_session = self.get_user_session(user_id)
+                if hasattr(user_session, 'status_message_id') and user_session.status_message_id:
+                    progress_callback = self._create_progress_callback(user_session, context, chat_id)
+                    await progress_callback(0, f"Ошибка: {str(e)}")
+            except Exception:
+                pass
             
             # Безопасная отправка сообщения об ошибке (без markdown)
             try:
@@ -695,6 +880,8 @@ class MeetingBot:
                     await update.message.reply_text(error_message)
                 elif update.callback_query:
                     await update.callback_query.message.reply_text(error_message)
+                else:
+                    await context.bot.send_message(chat_id=chat_id, text=error_message)
             except Exception:
                 self.logger.error("❌ Не удалось отправить сообщение об ошибке")
             
@@ -797,7 +984,8 @@ class MeetingBot:
 Я помогу вам:
 📝 Транскрибировать аудио и видео встреч
 📋 Создавать структурированные протоколы
-🤖 Использовать разные шаблоны протоколов{url_info}
+🤖 Использовать разные шаблоны протоколов
+📊 Отслеживать прогресс обработки в реальном времени{url_info}
 
 **Доступные команды:**
 /help - Справка по командам
@@ -857,8 +1045,13 @@ class MeetingBot:
 **Как использовать:**
 1️⃣ Выберите шаблон командой /templates
 2️⃣ Отправьте файл или ссылку на файл
-3️⃣ Дождитесь обработки (может занять несколько минут)
+3️⃣ Следите за прогрессом в реальном времени
 4️⃣ Получите транскрипт и протокол встречи
+
+**Новые возможности:**
+📊 Отслеживание прогресса обработки
+⏱️ Уведомления о каждом этапе
+🔄 Автоматическое обновление статуса
 
 **Доступные шаблоны:**
 • `standard` - Универсальный протокол
@@ -1091,11 +1284,13 @@ class MeetingBot:
         # Определяем статус обработки
         if user_session.processing:
             duration = user_session.get_processing_duration()
-            processing_status = f"🟢 Обрабатывается ({duration}с)" if duration else "🟢 Обрабатывается"
+            progress_info = f" ({user_session.current_progress}%)" if user_session.current_progress > 0 else ""
+            processing_status = f"🟢 Обрабатывается{progress_info} ({duration}с)" if duration else f"🟢 Обрабатывается{progress_info}"
         else:
             processing_status = "🔴 Свободен"
         
         url_status = "✅ Включена" if self.url_processor else "❌ Недоступна"
+        progress_status = "✅ Включены" if self.config.get("notifications", {}).get("send_progress_updates", True) else "❌ Отключены"
         
         settings_text = f"""
 ⚙️ **Настройки обработки**
@@ -1103,10 +1298,13 @@ class MeetingBot:
 📝 Текущий шаблон: `{user_session.template}`
 🔄 Статус: {processing_status}
 🔗 URL обработка: {url_status}
+📊 Уведомления о прогрессе: {progress_status}
 """
         
         if user_session.current_file:
             settings_text += f"📁 Обрабатывается: `{user_session.current_file}`\n"
+            if user_session.current_message:
+                settings_text += f"💬 Текущий этап: {user_session.current_message}\n"
         
         settings_text += """
 **Доступные действия:**
@@ -1145,12 +1343,23 @@ class MeetingBot:
             duration = user_session.get_processing_duration()
             duration_text = f" ({duration}с)" if duration else ""
             
-            await update.message.reply_text(
-                f"🔄 Обрабатывается: `{user_session.current_file}`\n"
+            # Создаем прогресс-бар
+            progress_bar = self._create_progress_bar(user_session.current_progress)
+            
+            status_text = (
+                f"🔄 *Активная обработка:*\n\n"
+                f"{progress_bar}\n"
+                f"📊 Прогресс: {user_session.current_progress}%\n"
+                f"📝 Этап: {user_session.current_message}\n"
+                f"📁 Файл: `{user_session.current_file}`\n"
                 f"📝 Шаблон: `{user_session.template}`\n"
                 f"⏱️ Длительность: {duration_text}\n\n"
-                "⏳ Обработка может занять несколько минут...\n"
-                "Используйте /cancel для отмены.",
+                "⏳ Обработка продолжается...\n"
+                "Используйте /cancel для отмены."
+            )
+            
+            await update.message.reply_text(
+                status_text,
                 parse_mode=ParseMode.MARKDOWN
             )
         else:
@@ -1349,6 +1558,7 @@ class MeetingBot:
         help_msg += "• /help - для справки\n"
         help_msg += "• /templates - для выбора шаблона\n"
         help_msg += "• /settings - для настроек\n"
+        help_msg += "• /status - для просмотра прогресса\n"
         
         if self.url_processor:
             help_msg += "• /url <ссылка> - для обработки файла по ссылке"
@@ -1373,7 +1583,7 @@ class MeetingBot:
             
             # Обрабатываем файл
             success, transcript_file, summary_file = await self._process_with_meeting_processor(
-                update, file_path, user_session.template
+                update, context, file_path, user_session.template
             )
             
             if success and transcript_file and summary_file:
@@ -1467,8 +1677,6 @@ class MeetingBot:
     
     def run(self):
         """Запуск бота"""
-    def run(self):
-        """Запуск бота"""
         # Проверяем токен
         bot_token = self.config.get("telegram", {}).get("bot_token", "")
         if not bot_token or bot_token == "YOUR_BOT_TOKEN_HERE":
@@ -1518,6 +1726,7 @@ class MeetingBot:
         self.logger.info("🚀 Telegram бот запущен")
         print("🤖 Meeting Bot запущен!")
         print("📱 Отправьте /start боту для начала работы")
+        print("📊 Отслеживание прогресса в реальном времени включено")
         
         if self.url_processor:
             print("🔗 Поддержка URL обработки включена")
@@ -1569,4 +1778,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-            

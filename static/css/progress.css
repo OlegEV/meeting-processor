@@ -1,0 +1,131 @@
+/* Стили для детального прогресса */
+.detailed-progress {
+    margin: 20px 0;
+}
+
+.progress-step {
+    margin-bottom: 15px;
+    padding: 15px;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    background: #f8f9fa;
+    transition: all 0.3s ease;
+}
+
+.progress-step.active {
+    border-color: #0d6efd;
+    background: #e7f3ff;
+    box-shadow: 0 2px 4px rgba(13, 110, 253, 0.1);
+}
+
+.progress-step.completed {
+    border-color: #198754;
+    background: #d1e7dd;
+}
+
+.progress-step.error {
+    border-color: #dc3545;
+    background: #f8d7da;
+}
+
+.step-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.step-title {
+    display: flex;
+    align-items: center;
+    font-weight: 600;
+    margin: 0;
+}
+
+.step-icon {
+    margin-right: 10px;
+    width: 20px;
+    text-align: center;
+}
+
+.step-status {
+    font-size: 0.875rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.step-status.pending {
+    background: #e9ecef;
+    color: #6c757d;
+}
+
+.step-status.active {
+    background: #cfe2ff;
+    color: #0d6efd;
+}
+
+.step-status.completed {
+    background: #d1e7dd;
+    color: #198754;
+}
+
+.step-status.error {
+    background: #f8d7da;
+    color: #dc3545;
+}
+
+.step-details {
+    margin-top: 10px;
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+.step-progress {
+    margin-top: 10px;
+}
+
+.step-progress .progress {
+    height: 8px;
+}
+
+.error-details {
+    margin-top: 10px;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #dc3545;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    color: #dc3545;
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.retry-button {
+    margin-top: 10px;
+}
+
+/* Анимация для активного шага */
+.progress-step.active .step-icon {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .step-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .step-status {
+        margin-top: 5px;
+    }
+}

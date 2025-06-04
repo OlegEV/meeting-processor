@@ -8,7 +8,7 @@ import os
 import sys
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable
 
 # Проверяем зависимости
 def check_dependencies():
@@ -88,9 +88,13 @@ class MeetingProcessor:
                  chunk_duration_minutes: int = 10,
                  template_type: str = "standard",
                  templates_config_file: str = "templates_config.json",
-                 team_config_file: str = "team_config.json"):
+                 team_config_file: str = "team_config.json",
+                 progress_callback: Callable[[int, str], None] = None):
         """
         Инициализация процессора встреч
+        
+        Args:
+            progress_callback: Функция для отправки прогресса (progress, message)
         """
         # Инициализируем компоненты
         self.audio_processor = AudioProcessor()
@@ -100,6 +104,7 @@ class MeetingProcessor:
         # Основные настройки
         self.chunk_duration_minutes = chunk_duration_minutes
         self.template_type = template_type
+        self.progress_callback = progress_callback
         
         # Инициализация шаблонов протоколов
         self._initialize_templates(templates_config_file)
@@ -109,6 +114,13 @@ class MeetingProcessor:
         
         # Инициализация mapper'а спикеров
         self.speaker_mapper = SpeakerMapper(self.team_identifier) if SpeakerMapper else None
+    
+    def _update_progress(self, progress: int, message: str):
+        """Обновляет прогресс через callback"""
+        if self.progress_callback:
+            self.progress_callback(progress, message)
+        else:
+            print(f"[{progress}%] {message}")
     
     def _initialize_templates(self, templates_config_file: str):
         """Инициализирует систему шаблонов"""
@@ -150,10 +162,13 @@ class MeetingProcessor:
         Полный цикл обработки встречи с идентификацией команды
         """
         try:
+            self._update_progress(5, "Инициализация обработки...")
+            
             # Создаем выходную директорию
             Path(output_dir).mkdir(exist_ok=True)
             
             # Получаем информацию о файле
+            self._update_progress(10, "Анализ входного файла...")
             file_type, file_ext, file_info = self.audio_processor.get_audio_info(input_file_path)
             file_datetime_info = FileUtils.get_file_datetime_info(input_file_path)
             
@@ -176,26 +191,33 @@ class MeetingProcessor:
             print(f"📝 Шаблон: {template_type}")
             
             # Подготавливаем аудио для транскрипции
+            self._update_progress(15, "Подготовка аудио файла...")
             audio_file_for_deepgram, temp_audio_created = self.audio_processor.prepare_audio_file(
                 input_file_path, file_type, output_dir, input_name
             )
             
             if not audio_file_for_deepgram:
+                self._update_progress(0, "Ошибка подготовки аудио файла")
                 return False
             
             # Транскрибируем аудио
+            self._update_progress(25, "Транскрибирование аудио...")
             transcript = self.transcription_service.transcribe_audio(audio_file_for_deepgram, self.chunk_duration_minutes)
             if not transcript:
+                self._update_progress(0, "Ошибка транскрибирования аудио")
                 return False
             
             # Генерируем протокол встречи СНАЧАЛА
+            self._update_progress(50, "Генерация первичного протокола...")
             summary = self.protocol_generator.generate_meeting_summary(
                 transcript, file_datetime_info, template_type, None, self.templates
             )
             if not summary:
+                self._update_progress(0, "Ошибка генерации протокола")
                 return False
             
             # Идентифицируем участников команды КОМПЛЕКСНО
+            self._update_progress(65, "Идентификация участников...")
             team_identification = None
             final_transcript = transcript
             
@@ -223,98 +245,35 @@ class MeetingProcessor:
                     team_identification = transcript_identification
             
             # Сохраняем результаты
+            self._update_progress(80, "Сохранение транскрипта...")
             FileUtils.save_transcript(transcript_path, final_transcript, file_datetime_info, template_type, team_identification)
             
             if team_identification and team_identification.get("identified", False):
                 FileUtils.save_team_info(team_info_path, team_identification, file_datetime_info, input_file_path, template_type)
                 
                 # Регенерируем протокол с информацией о команде
+                self._update_progress(90, "Генерация финального протокола с участниками...")
                 summary = self.protocol_generator.generate_meeting_summary(
                     final_transcript, file_datetime_info, template_type, team_identification, self.templates
                 )
             
             # Сохраняем финальный протокол
+            self._update_progress(95, "Сохранение протокола...")
             with open(summary_path, "w", encoding="utf-8") as f:
                 f.write(summary)
             
             # Очищаем временные файлы
+            self._update_progress(98, "Очистка временных файлов...")
             FileUtils.cleanup_temp_files(temp_audio_created, audio_file_for_deepgram, keep_audio_file)
             
+            self._update_progress(100, "Обработка завершена успешно!")
             return True
             
         except Exception as e:
+            self._update_progress(0, f"Критическая ошибка: {str(e)}")
             print(f"❌ Критическая ошибка при обработке встречи: {e}")
             import traceback
             traceback.print_exc()
-            return False
-    
-    def replace_speaker_names(self, transcript: str, name_mapping: Dict[str, str]) -> str:
-        """Заменяет имена спикеров согласно маппингу (устаревший метод)"""
-        if self.speaker_mapper:
-            return self.speaker_mapper.replace_speaker_names_legacy(transcript, name_mapping)
-        
-        # Fallback если модуль недоступен
-        if not name_mapping:
-            return transcript
-        
-        modified_transcript = transcript
-        for old_name, new_name in name_mapping.items():
-            pattern = rf'\b{re.escape(old_name)}\b'
-            modified_transcript = re.sub(pattern, new_name, modified_transcript, flags=re.IGNORECASE)
-        
-    def transcribe_only(self, 
-                       input_file_path: str, 
-                       output_dir: str = "output",
-                       keep_audio_file: bool = False) -> bool:
-        """
-        Только транскрибирует аудио без генерации протокола
-        
-        Args:
-            input_file_path: Путь к аудио/видео файлу
-            output_dir: Директория для сохранения
-            keep_audio_file: Сохранять ли обработанный аудиофайл
-            
-        Returns:
-            bool: Успешность операции
-        """
-        try:
-            # Создаем выходную директорию
-            Path(output_dir).mkdir(exist_ok=True)
-            
-            # Получаем информацию о файле
-            file_type, file_ext, file_info = self.audio_processor.get_audio_info(input_file_path)
-            file_datetime_info = FileUtils.get_file_datetime_info(input_file_path)
-            
-            # Подготавливаем пути для выходных файлов
-            input_name = Path(input_file_path).stem
-            transcript_path = f"{output_dir}/{input_name}_transcript.txt"
-            
-            print(f"🎤 Транскрибирование: {input_file_path}")
-            
-            # Подготавливаем аудио для транскрипции
-            audio_file_for_deepgram, temp_audio_created = self.audio_processor.prepare_audio_file(
-                input_file_path, file_type, output_dir, input_name
-            )
-            
-            if not audio_file_for_deepgram:
-                return False
-            
-            # Транскрибируем аудио
-            transcript = self.transcription_service.transcribe_audio(audio_file_for_deepgram, self.chunk_duration_minutes)
-            if not transcript:
-                return False
-            
-            # Сохраняем транскрипт
-            FileUtils.save_transcript(transcript_path, transcript, file_datetime_info, "transcription_only", None)
-            
-            # Очищаем временные файлы
-            FileUtils.cleanup_temp_files(temp_audio_created, audio_file_for_deepgram, keep_audio_file)
-            
-            print(f"✅ Транскрипт сохранен: {transcript_path}")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Ошибка транскрибирования: {e}")
             return False
     
     def generate_protocol_from_transcript(self, 
@@ -323,30 +282,25 @@ class MeetingProcessor:
                                         template_type: str = None) -> bool:
         """
         Генерирует протокол из готового транскрипта
-        
-        Args:
-            transcript_file_path: Путь к файлу транскрипта
-            output_dir: Директория для сохранения
-            template_type: Тип шаблона протокола
-            
-        Returns:
-            bool: Успешность операции
         """
         try:
+            self._update_progress(10, "Проверка файла транскрипта...")
+            
             # Проверяем существование файла транскрипта
             if not os.path.exists(transcript_file_path):
-                print(f"❌ Файл транскрипта не найден: {transcript_file_path}")
+                self._update_progress(0, f"Файл транскрипта не найден: {transcript_file_path}")
                 return False
             
             # Создаем выходную директорию
             Path(output_dir).mkdir(exist_ok=True)
             
             # Читаем транскрипт
+            self._update_progress(20, "Чтение транскрипта...")
             with open(transcript_file_path, "r", encoding="utf-8") as f:
                 transcript = f.read()
             
             if not transcript.strip():
-                print(f"❌ Транскрипт пустой: {transcript_file_path}")
+                self._update_progress(0, f"Транскрипт пустой: {transcript_file_path}")
                 return False
             
             # Получаем информацию о файле транскрипта для даты
@@ -368,13 +322,16 @@ class MeetingProcessor:
             print(f"🤖 Генерация протокола из: {transcript_file_path}")
             
             # Генерируем протокол встречи СНАЧАЛА
+            self._update_progress(40, "Генерация первичного протокола...")
             summary = self.protocol_generator.generate_meeting_summary(
                 transcript, file_datetime_info, template_type, None, self.templates
             )
             if not summary:
+                self._update_progress(0, "Ошибка генерации протокола")
                 return False
             
             # Идентифицируем участников команды КОМПЛЕКСНО
+            self._update_progress(60, "Идентификация участников...")
             team_identification = None
             final_transcript = transcript
             
@@ -400,6 +357,7 @@ class MeetingProcessor:
                     )
                     
                     # Регенерируем протокол с информацией о команде
+                    self._update_progress(80, "Генерация финального протокола с участниками...")
                     summary = self.protocol_generator.generate_meeting_summary(
                         final_transcript, file_datetime_info, template_type, team_identification, self.templates
                     )
@@ -407,6 +365,7 @@ class MeetingProcessor:
                     team_identification = transcript_identification
             
             # Сохраняем результаты
+            self._update_progress(90, "Сохранение результатов...")
             if team_identification and team_identification.get("identified", False):
                 FileUtils.save_team_info(team_info_path, team_identification, file_datetime_info, transcript_file_path, template_type)
             
@@ -419,6 +378,8 @@ class MeetingProcessor:
             with open(summary_path, "w", encoding="utf-8") as f:
                 f.write(summary)
             
+            self._update_progress(100, "Протокол успешно сгенерирован!")
+            
             print(f"✅ Протокол сохранен: {summary_path}")
             if team_identification and team_identification.get("identified", False):
                 stats = team_identification.get("statistics", {})
@@ -427,7 +388,82 @@ class MeetingProcessor:
             return True
             
         except Exception as e:
+            self._update_progress(0, f"Ошибка генерации протокола: {str(e)}")
             print(f"❌ Ошибка генерации протокола: {e}")
+            return False
+    
+    def replace_speaker_names(self, transcript: str, name_mapping: Dict[str, str]) -> str:
+        """Заменяет имена спикеров согласно маппингу (устаревший метод)"""
+        if self.speaker_mapper:
+            return self.speaker_mapper.replace_speaker_names_legacy(transcript, name_mapping)
+        
+        # Fallback если модуль недоступен
+        if not name_mapping:
+            return transcript
+        
+        modified_transcript = transcript
+        for old_name, new_name in name_mapping.items():
+            pattern = rf'\b{re.escape(old_name)}\b'
+            modified_transcript = re.sub(pattern, new_name, modified_transcript, flags=re.IGNORECASE)
+        
+        return modified_transcript
+    
+    def transcribe_only(self, 
+                       input_file_path: str, 
+                       output_dir: str = "output",
+                       keep_audio_file: bool = False) -> bool:
+        """
+        Только транскрибирует аудио без генерации протокола
+        """
+        try:
+            self._update_progress(10, "Инициализация транскрибирования...")
+            
+            # Создаем выходную директорию
+            Path(output_dir).mkdir(exist_ok=True)
+            
+            # Получаем информацию о файле
+            self._update_progress(20, "Анализ входного файла...")
+            file_type, file_ext, file_info = self.audio_processor.get_audio_info(input_file_path)
+            file_datetime_info = FileUtils.get_file_datetime_info(input_file_path)
+            
+            # Подготавливаем пути для выходных файлов
+            input_name = Path(input_file_path).stem
+            transcript_path = f"{output_dir}/{input_name}_transcript.txt"
+            
+            print(f"🎤 Транскрибирование: {input_file_path}")
+            
+            # Подготавливаем аудио для транскрипции
+            self._update_progress(30, "Подготовка аудио файла...")
+            audio_file_for_deepgram, temp_audio_created = self.audio_processor.prepare_audio_file(
+                input_file_path, file_type, output_dir, input_name
+            )
+            
+            if not audio_file_for_deepgram:
+                self._update_progress(0, "Ошибка подготовки аудио файла")
+                return False
+            
+            # Транскрибируем аудио
+            self._update_progress(50, "Транскрибирование аудио...")
+            transcript = self.transcription_service.transcribe_audio(audio_file_for_deepgram, self.chunk_duration_minutes)
+            if not transcript:
+                self._update_progress(0, "Ошибка транскрибирования аудио")
+                return False
+            
+            # Сохраняем транскрипт
+            self._update_progress(90, "Сохранение транскрипта...")
+            FileUtils.save_transcript(transcript_path, transcript, file_datetime_info, "transcription_only", None)
+            
+            # Очищаем временные файлы
+            self._update_progress(95, "Очистка временных файлов...")
+            FileUtils.cleanup_temp_files(temp_audio_created, audio_file_for_deepgram, keep_audio_file)
+            
+            self._update_progress(100, "Транскрибирование завершено!")
+            print(f"✅ Транскрипт сохранен: {transcript_path}")
+            return True
+            
+        except Exception as e:
+            self._update_progress(0, f"Ошибка транскрибирования: {str(e)}")
+            print(f"❌ Ошибка транскрибирования: {e}")
             return False
     
     def _print_completion_summary(self, output_dir: str, template_type: str, team_identification: Dict):
