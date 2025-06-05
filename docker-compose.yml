@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile.web
     container_name: meeting-processor-web
     ports:
-      - "5000:8000"
+      - "5000:8001"
     volumes:
       - ./logs:/app/logs
       - ./web_uploads:/app/web_uploads

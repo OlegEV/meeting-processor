@@ -199,3 +199,7 @@ bot_config.json
 team_config.json 
 web_output 
 web_uploads 
+temp_*
+logs
+output
+meeting_output 
