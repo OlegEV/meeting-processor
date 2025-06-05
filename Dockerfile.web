@@ -1,14 +1,17 @@
 # Multi-stage build для Meeting Processor Web App
-FROM python:3.11-slim
+FROM python:3.11-alpine
 
 # Устанавливаем системные зависимости
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     ffmpeg \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    gcc \
+    musl-dev \
+    linux-headers \
+    && rm -rf /var/cache/apk/*
 
 # Создаем пользователя для безопасности
-RUN useradd -m -u 1000 app
+RUN adduser -D -u 1000 app
 
 # Устанавливаем рабочую директорию
 WORKDIR /app
@@ -20,7 +23,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Копируем исходный код приложения
-COPY . .
+COPY *.py ./
+COPY *.json ./
+COPY requirements.txt ./
+COPY wsgi.py ./
+COPY gunicorn.conf.py ./
 
 # Создаем необходимые директории
 RUN mkdir -p logs web_uploads web_output && \

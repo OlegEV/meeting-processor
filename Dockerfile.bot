@@ -1,14 +1,17 @@
 # Dockerfile для Meeting Telegram Bot
-FROM python:3.11-slim
+FROM python:3.11-alpine
 
 # Устанавливаем системные зависимости
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     ffmpeg \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    gcc \
+    musl-dev \
+    linux-headers \
+    && rm -rf /var/cache/apk/*
 
 # Создаем пользователя для безопасности
-RUN useradd -m -u 1000 app
+RUN adduser -D -u 1000 app
 
 # Устанавливаем рабочую директорию
 WORKDIR /app
@@ -19,8 +22,9 @@ COPY requirements.txt .
 # Устанавливаем Python зависимости
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем исходный код Python
+# Копируем исходный код Python и конфигурационные файлы
 COPY *.py ./
+COPY *.json ./
 
 # Создаем директории для логов и временных файлов
 RUN mkdir -p /app/logs /app/temp_bot_files /app/meeting_output && \

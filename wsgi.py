@@ -16,20 +16,46 @@ sys.path.insert(0, os.path.dirname(__file__))
 # Создаем logs директорию если её нет
 os.makedirs('logs', exist_ok=True)
 
-# Настройка логирования для production
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/app.log', encoding='utf-8'),
+# Настройка унифицированного логирования для WSGI
+def setup_wsgi_logging(log_level: str = "INFO", log_file: str = "web_app.log"):
+    """Настраивает систему логирования для WSGI"""
+    from logging.handlers import RotatingFileHandler
+    
+    level = getattr(logging, log_level.upper(), logging.INFO)
+    
+    # Создаем папку для логов
+    os.makedirs("logs", exist_ok=True)
+    log_path = os.path.join("logs", log_file)
+    
+    # Проверяем, не настроено ли уже логирование
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        # Логирование уже настроено, используем существующую конфигурацию
+        return logging.getLogger(__name__)
+    
+    # Очищаем существующие обработчики
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    handlers = [
+        RotatingFileHandler(log_path, maxBytes=100*1024*1024, backupCount=3, encoding='utf-8'),
         logging.StreamHandler()
     ]
-)
+    
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=handlers,
+        force=True  # Переопределяем существующую конфигурацию
+    )
+    
+    # Настраиваем уровни для различных логгеров
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
+    logging.getLogger('gunicorn').setLevel(logging.INFO)
+    
+    return logging.getLogger(__name__)
 
-# Отключаем логирование werkzeug для избежания конфликтов
-logging.getLogger('werkzeug').setLevel(logging.ERROR)
-
-logger = logging.getLogger(__name__)
+logger = setup_wsgi_logging()
 
 def create_app():
     """Создает и настраивает Flask приложение для production"""

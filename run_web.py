@@ -33,8 +33,44 @@ except ImportError as e:
     sys.exit(1)
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+def setup_logging(log_level: str = "INFO", log_file: str = "web_app.log"):
+    """Настраивает систему логирования"""
+    from logging.handlers import RotatingFileHandler
+    
+    level = getattr(logging, log_level.upper(), logging.INFO)
+    
+    # Создаем папку для логов
+    os.makedirs("logs", exist_ok=True)
+    log_path = os.path.join("logs", log_file)
+    
+    # Очищаем существующие обработчики
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    handlers = [
+        RotatingFileHandler(log_path, maxBytes=100*1024*1024, backupCount=3, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+    
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=handlers,
+        force=True  # Принудительно переопределяем конфигурацию
+    )
+    
+    # Настраиваем логгеры для всех модулей приложения
+    app_logger = logging.getLogger(__name__)
+    app_logger.setLevel(level)
+    
+    # Настраиваем логгер для Flask
+    flask_logger = logging.getLogger('werkzeug')
+    flask_logger.setLevel(logging.WARNING)  # Уменьшаем уровень для werkzeug
+    
+    return app_logger
+
+logger = setup_logging()
 
 class WorkingMeetingWebApp:
     """Рабочая версия веб-приложения для обработки встреч"""
@@ -192,6 +228,8 @@ class WorkingMeetingWebApp:
                 filename = secure_filename(file.filename)
                 file_path = self.upload_folder / f"{job_id}_{filename}"
                 file.save(str(file_path))
+                
+                logger.info(f"📁 Файл загружен: {filename} (ID: {job_id}, шаблон: {template_type})")
                 
                 # Создаем задачу
                 with self.jobs_lock:
@@ -420,6 +458,8 @@ class WorkingMeetingWebApp:
             self.update_job_status(job_id, progress=progress, message=message)
         
         try:
+            logger.info(f"🔄 Начало обработки файла {job_id}: {job['filename']}")
+            
             output_dir = self.output_folder / job_id
             output_dir.mkdir(exist_ok=True)
             
@@ -591,6 +631,11 @@ def main():
     args = parser.parse_args()
     
     try:
+        # Создаем необходимые директории
+        os.makedirs("logs", exist_ok=True)
+        os.makedirs("web_uploads", exist_ok=True)
+        os.makedirs("web_output", exist_ok=True)
+        
         # Создаем веб-приложение
         web_app = WorkingMeetingWebApp(args.config)
         
@@ -602,6 +647,7 @@ def main():
         print("🔑 API ключи: api_keys.json")
         print("📁 Загрузки: web_uploads/")
         print("📄 Результаты: web_output/")
+        print("📊 Логи: logs/web_app.log")
         print("🧵 Многопоточная обработка: ✅")
         print("🔄 Автоочистка файлов: ✅")
         print("\n💡 Для остановки нажмите Ctrl+C")
