@@ -468,7 +468,7 @@ class WorkingMeetingWebApp:
                     transcript_files = [f for f in all_files if "_transcript.txt" in f.name]
                     summary_files = [f for f in all_files if "_summary.md" in f.name]
                     
-                    logger.error(f"📁 Все файлы в {output_dir}: {[f.name for f in all_files]}")
+                    logger.info(f"📁 Все файлы в {output_dir}: {[f.name for f in all_files]}")
                     
                     if transcript_files and summary_files:
                         transcript_file = transcript_files[0]

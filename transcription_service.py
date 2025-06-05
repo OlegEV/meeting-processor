@@ -25,12 +25,13 @@ except ImportError:
 class TranscriptionService:
     """Сервис для транскрипции аудио через Deepgram"""
     
-    def __init__(self, api_key: str, timeout: int = 300, options: dict = None):
+    def __init__(self, api_key: str, timeout: int = 300, options: dict = None, max_retries: int = 3):
         if not DeepgramClient:
             raise ImportError("deepgram-sdk не установлен")
             
         self.client = DeepgramClient(api_key)
         self.timeout = timeout
+        self.max_retries = max_retries
         
         # Настройки Deepgram по умолчанию
         default_options = {
@@ -48,16 +49,11 @@ class TranscriptionService:
         self.options["diarize"] = True
     
     def transcribe_audio_with_timeout(self, audio_data: bytes, timeout_override: Optional[int] = None) -> Optional[str]:
-        """Транскрибирует аудио с настраиваемым таймаутом"""
+        """Транскрибирует аудио с настраиваемым таймаутом и retry при таймаутах"""
         timeout = timeout_override or self.timeout
         
         def transcribe_request():
             """Функция для выполнения запроса транскрипции"""
-            print(f"🎤 Настройки Deepgram:")
-            print(f"   model: nova-2, language: ru")
-            for option, value in self.options.items():
-                print(f"   {option}: {value}")
-            
             # Создаем опции
             options = PrerecordedOptions(
                 model="nova-2",
@@ -75,13 +71,10 @@ class TranscriptionService:
             response = self.client.listen.rest.v("1").transcribe_file(payload, options)
             
             # Анализируем структуру ответа
-            print(f"📊 Структура ответа Deepgram:")
             channels = response.results.channels
-            print(f"   Каналов: {len(channels)}")
             
             if channels and len(channels) > 0:
                 alternatives = channels[0].alternatives
-                print(f"   Альтернатив: {len(alternatives)}")
                 
                 if alternatives and len(alternatives) > 0:
                     transcript_data = alternatives[0]
@@ -93,11 +86,9 @@ class TranscriptionService:
                     
                     if has_words:
                         words_with_speakers = [w for w in transcript_data.words if hasattr(w, 'speaker')]
-                        print(f"   Слов со спикерами: {len(words_with_speakers)}")
                         
                         if words_with_speakers:
                             unique_speakers = set(getattr(w, 'speaker') for w in words_with_speakers)
-                            print(f"   Уникальных спикеров: {len(unique_speakers)} - {sorted(unique_speakers)}")
                     
                     # Возвращаем отформатированный транскрипт
                     if has_words and self.options.get("diarize", True):
@@ -109,21 +100,52 @@ class TranscriptionService:
             
             return "Ошибка: неожиданная структура ответа"
         
-        try:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(transcribe_request)
+        # Retry логика при таймаутах
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                if attempt == 1:
+                    print(f"🎤 Настройки Deepgram:")
+                    print(f"   model: nova-2, language: ru")
+                    for option, value in self.options.items():
+                        print(f"   {option}: {value}")
+                else:
+                    print(f"🔄 Повторная попытка {attempt}/{self.max_retries}")
                 
-                try:
-                    result = future.result(timeout=timeout)
-                    return result
-                except FutureTimeoutError:
-                    print(f"⏰ Таймаут {timeout} секунд превышен")
-                    future.cancel()
-                    return None
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(transcribe_request)
                     
-        except Exception as e:
-            print(f"❌ Ошибка транскрипции: {e}")
-            return None
+                    try:
+                        result = future.result(timeout=timeout)
+                        if attempt > 1:
+                            print(f"✅ Запрос успешен с попытки {attempt}")
+                        else:
+                            print(f"📊 Структура ответа Deepgram:")
+                            channels = result.count("Спикер") if "Спикер" in result else 0
+                            print(f"   Найдено спикеров: {channels}")
+                        return result
+                    except FutureTimeoutError:
+                        print(f"⏰ Таймаут {timeout} секунд превышен (попытка {attempt}/{self.max_retries})")
+                        future.cancel()
+                        
+                        # Если это не последняя попытка, ждем перед retry
+                        if attempt < self.max_retries:
+                            wait_time = min(10 * attempt, 30)  # Экспоненциальная задержка, максимум 30 сек
+                            print(f"⏳ Ожидание {wait_time} секунд перед повтором...")
+                            time.sleep(wait_time)
+                        continue
+                        
+            except Exception as e:
+                print(f"❌ Ошибка транскрипции (попытка {attempt}/{self.max_retries}): {e}")
+                
+                # Если это не последняя попытка, ждем перед retry
+                if attempt < self.max_retries:
+                    wait_time = min(5 * attempt, 15)  # Короткая задержка при других ошибках
+                    print(f"⏳ Ожидание {wait_time} секунд перед повтором...")
+                    time.sleep(wait_time)
+                continue
+        
+        print(f"❌ Все {self.max_retries} попыток исчерпаны")
+        return None
     
     def _format_transcript_with_paragraphs(self, transcript_data) -> str:
         """Форматирует транскрипт с параграфами"""

@@ -89,16 +89,18 @@ class MeetingProcessor:
                  template_type: str = "standard",
                  templates_config_file: str = "templates_config.json",
                  team_config_file: str = "team_config.json",
-                 progress_callback: Callable[[int, str], None] = None):
+                 progress_callback: Callable[[int, str], None] = None,
+                 deepgram_max_retries: int = 3):
         """
         Инициализация процессора встреч
         
         Args:
             progress_callback: Функция для отправки прогресса (progress, message)
+            deepgram_max_retries: Максимальное количество повторных попыток при таймауте Deepgram
         """
         # Инициализируем компоненты
         self.audio_processor = AudioProcessor()
-        self.transcription_service = TranscriptionService(deepgram_api_key, deepgram_timeout, deepgram_options)
+        self.transcription_service = TranscriptionService(deepgram_api_key, deepgram_timeout, deepgram_options, deepgram_max_retries)
         self.protocol_generator = ProtocolGenerator(claude_api_key, claude_model)
         
         # Основные настройки
