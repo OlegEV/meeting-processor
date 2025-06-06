@@ -21,7 +21,8 @@ class WebTemplates:
     <nav class="navbar navbar-dark bg-primary">
         <div class="container">
             <span class="navbar-brand"><i class="fas fa-microphone me-2"></i>Meeting Processor</span>
-            <div class="navbar-nav">
+            <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
                 <a class="nav-link" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
             </div>
         </div>
@@ -522,6 +523,417 @@ class WebTemplates:
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+        '''
+    
+    def get_docs_index_template(self):
+        """Возвращает HTML шаблон главной страницы документации"""
+        return '''
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Документация - Meeting Processor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="/"><i class="fas fa-home me-1"></i>Главная</a>
+                <a class="nav-link" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow mb-4">
+                    <div class="card-header bg-info text-white">
+                        <h3><i class="fas fa-book me-2"></i>Документация по проведению встреч</h3>
+                        <p class="mb-0">Руководства для получения качественных протоколов с помощью автоматической транскрибации</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <div class="text-center mb-3">
+                            <i class="fas fa-book-open fa-3x text-primary"></i>
+                        </div>
+                        <h5 class="card-title text-center">Обзор документации</h5>
+                        <p class="card-text">Общий обзор всех рекомендаций и быстрый старт для новичков и опытных пользователей.</p>
+                        <div class="text-center">
+                            <a href="/docs/readme" target="_blank" class="btn btn-primary">
+                                <i class="fas fa-external-link-alt me-2"></i>Открыть
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <div class="text-center mb-3">
+                            <i class="fas fa-tasks fa-3x text-success"></i>
+                        </div>
+                        <h5 class="card-title text-center">Быстрый чек-лист</h5>
+                        <p class="card-text">Краткий справочник для ежедневного использования: проверка перед встречей, правила во время встречи.</p>
+                        <div class="text-center">
+                            <a href="/docs/checklist" target="_blank" class="btn btn-success">
+                                <i class="fas fa-external-link-alt me-2"></i>Открыть
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <div class="text-center mb-3">
+                            <i class="fas fa-file-alt fa-3x text-info"></i>
+                        </div>
+                        <h5 class="card-title text-center">Полное руководство</h5>
+                        <p class="card-text">Детальные рекомендации по всем аспектам: техническая подготовка, правила речи, примеры практики.</p>
+                        <div class="text-center">
+                            <a href="/docs/guidelines" target="_blank" class="btn btn-info">
+                                <i class="fas fa-external-link-alt me-2"></i>Открыть
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <div class="text-center mb-3">
+                            <i class="fas fa-cogs fa-3x text-warning"></i>
+                        </div>
+                        <h5 class="card-title text-center">Техническое руководство</h5>
+                        <p class="card-text">Подробные инструкции по настройке записи для Zoom, Google Meet, KTalk и проприетарного ПО.</p>
+                        <div class="text-center">
+                            <a href="/docs/setup" target="_blank" class="btn btn-warning">
+                                <i class="fas fa-external-link-alt me-2"></i>Открыть
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card border-primary">
+                    <div class="card-header bg-primary text-white">
+                        <h5><i class="fas fa-lightbulb me-2"></i>Ключевые принципы</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <h6><i class="fas fa-microphone text-primary me-2"></i>Главное правило</h6>
+                                <p class="small">Представление участников в начале встречи - КРИТИЧНО!</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6><i class="fas fa-comments text-success me-2"></i>Правила речи</h6>
+                                <p class="small">Четко говорить, делать паузы, называть себя при выступлении</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6><i class="fas fa-file-audio text-info me-2"></i>Техническая основа</h6>
+                                <p class="small">MP3, WAV, M4A, AAC (до 25МБ), 256 kbps, 44.1 kHz</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <h6><i class="fas fa-info-circle me-2"></i>Как использовать документацию</h6>
+                    <ul class="mb-0">
+                        <li><strong>Новичкам:</strong> Начните с быстрого чек-листа, затем изучите полное руководство</li>
+                        <li><strong>Опытным пользователям:</strong> Используйте техническое руководство для настройки</li>
+                        <li><strong>Для справки:</strong> Обзор документации содержит все ключевые моменты</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+        '''
+    
+    def get_docs_view_template(self):
+        """Возвращает HTML шаблон для просмотра документации"""
+        return '''
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ doc_title }} - Meeting Processor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .markdown-content {
+            line-height: 1.7;
+            font-size: 16px;
+        }
+        .markdown-content h1 {
+            color: #0d6efd;
+            border-bottom: 3px solid #0d6efd;
+            padding-bottom: 0.5rem;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+        .markdown-content h2 {
+            color: #198754;
+            border-bottom: 2px solid #198754;
+            padding-bottom: 0.3rem;
+            margin-top: 1.5rem;
+            margin-bottom: 0.8rem;
+        }
+        .markdown-content h3 {
+            color: #fd7e14;
+            margin-top: 1.2rem;
+            margin-bottom: 0.6rem;
+        }
+        .markdown-content h4 {
+            color: #6f42c1;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        .markdown-content ul, .markdown-content ol {
+            margin-bottom: 1rem;
+            padding-left: 1.5rem;
+        }
+        .markdown-content li {
+            margin-bottom: 0.3rem;
+        }
+        .markdown-content code {
+            background-color: #f8f9fa;
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+            font-size: 0.9em;
+            color: #d63384;
+        }
+        .markdown-content pre {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border-left: 4px solid #0d6efd;
+            overflow-x: auto;
+        }
+        .markdown-content pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        .markdown-content blockquote {
+            border-left: 4px solid #0d6efd;
+            padding-left: 1rem;
+            margin: 1rem 0;
+            background-color: #f8f9fa;
+            padding: 0.8rem 1rem;
+            border-radius: 0.25rem;
+        }
+        .markdown-content table {
+            width: 100%;
+            margin-bottom: 1rem;
+            border-collapse: collapse;
+        }
+        .markdown-content table th,
+        .markdown-content table td {
+            padding: 0.75rem;
+            border: 1px solid #dee2e6;
+        }
+        .markdown-content table th {
+            background-color: #e9ecef;
+            font-weight: bold;
+        }
+        .markdown-content table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        .markdown-content .emoji {
+            font-size: 1.2em;
+        }
+        .toc {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 2rem;
+        }
+        .toc ul {
+            margin-bottom: 0;
+        }
+        .toc a {
+            text-decoration: none;
+            color: #0d6efd;
+        }
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        .back-to-top {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-primary sticky-top">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
+            <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/docs"><i class="fas fa-arrow-left me-1"></i>К документации</a>
+                <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
+                <a class="nav-link" href="/jobs"><i class="fas fa-list me-1"></i>Задачи</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="card shadow">
+            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                <h4><i class="fas fa-book me-2"></i>{{ doc_title }}</h4>
+                <div>
+                    <button onclick="window.print()" class="btn btn-light btn-sm me-2">
+                        <i class="fas fa-print me-1"></i>Печать
+                    </button>
+                    <button onclick="toggleToc()" class="btn btn-outline-light btn-sm">
+                        <i class="fas fa-list me-1"></i>Содержание
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Содержание (скрыто по умолчанию) -->
+                <div id="toc" class="toc" style="display: none;">
+                    <h6><i class="fas fa-list me-2"></i>Содержание</h6>
+                    <div id="toc-content"></div>
+                </div>
+                
+                <!-- Основной контент -->
+                <div id="markdown-content" class="markdown-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Кнопка "Наверх" -->
+    <button onclick="scrollToTop()" class="btn btn-primary back-to-top" title="Наверх">
+        <i class="fas fa-arrow-up"></i>
+    </button>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Загружаем и отображаем markdown контент
+        const markdownText = {{ content|tojson }};
+        const contentDiv = document.getElementById('markdown-content');
+        
+        // Настраиваем marked для поддержки эмодзи
+        marked.setOptions({
+            breaks: true,
+            gfm: true
+        });
+        
+        // Конвертируем markdown в HTML
+        contentDiv.innerHTML = marked.parse(markdownText);
+        
+        // Генерируем содержание
+        generateToc();
+        
+        // Добавляем якоря к заголовкам
+        addAnchorsToHeadings();
+        
+        function generateToc() {
+            const headings = contentDiv.querySelectorAll('h1, h2, h3, h4');
+            const tocContent = document.getElementById('toc-content');
+            
+            if (headings.length === 0) {
+                document.getElementById('toc').style.display = 'none';
+                return;
+            }
+            
+            let tocHtml = '<ul>';
+            headings.forEach((heading, index) => {
+                const id = 'heading-' + index;
+                heading.id = id;
+                const level = parseInt(heading.tagName.charAt(1));
+                const indent = 'ms-' + ((level - 1) * 3);
+                tocHtml += `<li class="${indent}"><a href="#${id}">${heading.textContent}</a></li>`;
+            });
+            tocHtml += '</ul>';
+            
+            tocContent.innerHTML = tocHtml;
+        }
+        
+        function addAnchorsToHeadings() {
+            const headings = contentDiv.querySelectorAll('h1, h2, h3, h4');
+            headings.forEach(heading => {
+                heading.style.cursor = 'pointer';
+                heading.title = 'Нажмите, чтобы скопировать ссылку';
+                heading.addEventListener('click', function() {
+                    const url = window.location.origin + window.location.pathname + '#' + this.id;
+                    navigator.clipboard.writeText(url).then(() => {
+                        // Показываем уведомление
+                        const toast = document.createElement('div');
+                        toast.className = 'alert alert-success position-fixed';
+                        toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; opacity: 0.9;';
+                        toast.innerHTML = '<i class="fas fa-check me-2"></i>Ссылка скопирована!';
+                        document.body.appendChild(toast);
+                        setTimeout(() => toast.remove(), 2000);
+                    });
+                });
+            });
+        }
+        
+        function toggleToc() {
+            const toc = document.getElementById('toc');
+            toc.style.display = toc.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        function scrollToTop() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        
+        // Показываем/скрываем кнопку "Наверх"
+        window.addEventListener('scroll', function() {
+            const backToTop = document.querySelector('.back-to-top');
+            if (window.pageYOffset > 300) {
+                backToTop.style.display = 'block';
+            } else {
+                backToTop.style.display = 'none';
+            }
+        });
+        
+        // Плавная прокрутка для якорных ссылок
+        document.addEventListener('click', function(e) {
+            if (e.target.tagName === 'A' && e.target.getAttribute('href').startsWith('#')) {
+                e.preventDefault();
+                const targetId = e.target.getAttribute('href').substring(1);
+                const targetElement = document.getElementById(targetId);
+                if (targetElement) {
+                    targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+        });
+    </script>
 </body>
 </html>
         '''

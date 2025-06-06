@@ -42,9 +42,18 @@ __pycache__/
 Thumbs.db
 desktop.ini
 
-# Documentation
-README.md
-*.md
+# Documentation (исключаем общий README, но разрешаем файлы документации для веб-интерфейса)
+readme.md
+readme_docker.md
+templates_readme.md
+bot_setup.md
+DEPLOYMENT_README.md
+
+# Разрешаем файлы документации для веб-интерфейса:
+# meeting_recording_guidelines.md
+# quick_meeting_checklist.md  
+# recording_setup_guide.md
+# MEETING_GUIDELINES_README.md
 
 # Windows
 run_bot.bat

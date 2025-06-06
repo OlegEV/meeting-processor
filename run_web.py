@@ -441,6 +441,53 @@ class WorkingMeetingWebApp:
             jobs.sort(key=lambda x: x['created_at'], reverse=True)
             return render_template_string(self.templates.get_jobs_template(), jobs=jobs)
         
+        @self.app.route('/docs')
+        def docs_index():
+            """Главная страница документации"""
+            return render_template_string(self.templates.get_docs_index_template())
+        
+        @self.app.route('/docs/<doc_name>')
+        def view_docs(doc_name: str):
+            """Просмотр конкретного документа"""
+            docs_map = {
+                'guidelines': 'meeting_recording_guidelines.md',
+                'checklist': 'quick_meeting_checklist.md', 
+                'setup': 'recording_setup_guide.md',
+                'readme': 'MEETING_GUIDELINES_README.md'
+            }
+            
+            if doc_name not in docs_map:
+                flash('Документ не найден', 'error')
+                return redirect(url_for('docs_index'))
+            
+            try:
+                file_path = docs_map[doc_name]
+                if not os.path.exists(file_path):
+                    flash('Файл документации не найден', 'error')
+                    return redirect(url_for('docs_index'))
+                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                doc_titles = {
+                    'guidelines': 'Полное руководство по проведению встреч',
+                    'checklist': 'Быстрый чек-лист для записи встреч',
+                    'setup': 'Техническое руководство по настройке записи',
+                    'readme': 'Обзор документации'
+                }
+                
+                return render_template_string(
+                    self.templates.get_docs_view_template(),
+                    content=content,
+                    doc_title=doc_titles[doc_name],
+                    doc_name=doc_name
+                )
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка чтения документации: {e}")
+                flash(f'Ошибка чтения документации: {str(e)}', 'error')
+                return redirect(url_for('docs_index'))
+        
         @self.app.errorhandler(RequestEntityTooLarge)
         def handle_file_too_large(e):
             max_size = self.app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)

@@ -29,6 +29,9 @@ COPY requirements.txt ./
 COPY wsgi.py ./
 COPY gunicorn.conf.py ./
 
+# Копируем файлы документации
+COPY *.md ./
+
 # Создаем необходимые директории
 RUN mkdir -p logs web_uploads web_output && \
     chown -R app:app /app
