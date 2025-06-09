@@ -471,8 +471,7 @@ class WorkingMeetingWebApp:
                 doc_titles = {
                     'guidelines': 'Полное руководство по проведению встреч',
                     'checklist': 'Быстрый чек-лист для записи встреч',
-                    'setup': 'Техническое руководство по настройке записи',
-                    'readme': 'Обзор документации'
+                    'setup': 'Техническое руководство по настройке записи'
                 }
                 
                 return render_template_string(
