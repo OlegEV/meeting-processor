@@ -452,8 +452,7 @@ class WorkingMeetingWebApp:
             docs_map = {
                 'guidelines': 'meeting_recording_guidelines.md',
                 'checklist': 'quick_meeting_checklist.md', 
-                'setup': 'recording_setup_guide.md',
-                'readme': 'MEETING_GUIDELINES_README.md'
+                'setup': 'recording_setup_guide.md'
             }
             
             if doc_name not in docs_map:

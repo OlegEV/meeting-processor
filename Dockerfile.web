@@ -30,7 +30,9 @@ COPY wsgi.py ./
 COPY gunicorn.conf.py ./
 
 # Копируем файлы документации
-COPY *.md ./
+COPY meeting_recording_guidelines.md ./
+COPY quick_meeting_checklist.md ./
+COPY recording_setup_guide.md ./
 
 # Создаем необходимые директории
 RUN mkdir -p logs web_uploads web_output && \

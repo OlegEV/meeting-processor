@@ -162,7 +162,7 @@ python meeting_processor.py file.mp3 --claude-model claude-3-opus-20240229
 Скрипт создаст в выходной папке:
 
 - `meeting_transcript.txt` - полный транскрипт встречи с замененными именами
-- `meeting_summary.txt` - структурированный протокол встречи, включающий:
+- `meeting_summary.md` - структурированный протокол встречи, включающий:
   - Краткое резюме встречи
   - Основные обсуждаемые вопросы
   - Принятые решения
@@ -180,7 +180,7 @@ python meeting_processor.py file.mp3 --claude-model claude-3-opus-20240229
 ├── README.md              # Эта инструкция
 └── meeting_output/        # Папка с результатами (создается автоматически)
     ├── meeting_transcript.txt
-    └── meeting_summary.txt
+    └── meeting_summary.md
 ```
 
 ## Поддерживаемые форматы

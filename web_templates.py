@@ -563,24 +563,7 @@ class WebTemplates:
         </div>
 
         <div class="row">
-            <div class="col-md-6 mb-4">
-                <div class="card h-100 shadow-sm">
-                    <div class="card-body">
-                        <div class="text-center mb-3">
-                            <i class="fas fa-book-open fa-3x text-primary"></i>
-                        </div>
-                        <h5 class="card-title text-center">Обзор документации</h5>
-                        <p class="card-text">Общий обзор всех рекомендаций и быстрый старт для новичков и опытных пользователей.</p>
-                        <div class="text-center">
-                            <a href="/docs/readme" target="_blank" class="btn btn-primary">
-                                <i class="fas fa-external-link-alt me-2"></i>Открыть
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-6 mb-4">
+            <div class="col-md-4 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body">
                         <div class="text-center mb-3">
@@ -597,7 +580,7 @@ class WebTemplates:
                 </div>
             </div>
 
-            <div class="col-md-6 mb-4">
+            <div class="col-md-4 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body">
                         <div class="text-center mb-3">
@@ -614,7 +597,7 @@ class WebTemplates:
                 </div>
             </div>
 
-            <div class="col-md-6 mb-4">
+            <div class="col-md-4 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body">
                         <div class="text-center mb-3">
