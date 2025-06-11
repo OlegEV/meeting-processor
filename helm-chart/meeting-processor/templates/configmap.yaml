@@ -9,83 +9,119 @@ metadata:
 data:
   config.json: |
     {
-      "deepgram": {
-        "model": {{ .Values.config.deepgram.model | quote }},
+      "paths": {
+        "input_file": "",
+        "output_dir": "meeting_output",
+        "names_config": "names_config.json",
+        "templates_config": "templates_config.json",
+        "api_keys_config": "api_keys.json",
+        "team_config": "team_config.json"
+      },
+      "settings": {
+        "keep_audio_file": {{ .Values.config.processing.keepAudioFile }},
         "language": {{ .Values.config.deepgram.language | quote }},
-        "smart_format": {{ .Values.config.deepgram.smartFormat }},
+        "deepgram_model": {{ .Values.config.deepgram.model | quote }},
+        "claude_model": {{ .Values.config.claude.model | quote }},
+        "deepgram_timeout_seconds": {{ .Values.config.processing.deepgramTimeoutSeconds }},
+        "chunk_duration_minutes": {{ .Values.config.processing.chunkDurationMinutes }},
+        "max_file_size_mb": {{ .Values.config.processing.maxFileSizeMb }},
+        "max_duration_minutes": {{ .Values.config.processing.maxDurationMinutes }},
+        "request_pause_seconds": {{ .Values.config.processing.requestPauseSeconds }},
+        "max_retries": {{ .Values.config.processing.maxRetries }},
+        "template_type": "standard"
+      },
+      "deepgram_options": {
         "punctuate": {{ .Values.config.deepgram.punctuate }},
         "diarize": {{ .Values.config.deepgram.diarize }},
-        "multichannel": {{ .Values.config.deepgram.multichannel }},
-        "alternatives": {{ .Values.config.deepgram.alternatives }},
-        "numerals": {{ .Values.config.deepgram.numerals }},
-        "search": [],
-        "replace": [],
-        "keywords": [],
-        "interim_results": {{ .Values.config.deepgram.interimResults }},
-        "endpointing": {{ .Values.config.deepgram.endpointing }},
-        "vad_turnoff": {{ .Values.config.deepgram.vadTurnoff }},
-        "encoding": {{ .Values.config.deepgram.encoding | quote }},
-        "channels": {{ .Values.config.deepgram.channels }},
-        "sample_rate": {{ .Values.config.deepgram.sampleRate }}
+        "smart_format": {{ .Values.config.deepgram.smartFormat }},
+        "paragraphs": {{ .Values.config.deepgram.paragraphs }},
+        "utterances": {{ .Values.config.deepgram.utterances }},
+        "summarize": {{ .Values.config.deepgram.summarize }},
+        "detect_language": {{ .Values.config.deepgram.detectLanguage }}
       },
-      "claude": {
-        "model": {{ .Values.config.claude.model | quote }},
-        "max_tokens": {{ .Values.config.claude.maxTokens }},
-        "temperature": {{ .Values.config.claude.temperature }}
+      "template_settings": {
+        "auto_detect_meeting_type": {{ .Values.templates.templateSettings.autoDetectMeetingType }},
+        "include_technical_info": {{ .Values.templates.templateSettings.includeTechnicalInfo }},
+        "include_file_datetime": {{ .Values.templates.templateSettings.includeFileDatetime }},
+        "max_tokens": {{ .Values.templates.templateSettings.maxTokens }},
+        "fallback_template": {{ .Values.templates.autoDetectionSettings.fallbackTemplate | quote }}
       },
-      "processing": {
-        "chunk_size": {{ .Values.config.processing.chunkSize }},
-        "overlap": {{ .Values.config.processing.overlap }},
-        "max_file_size": {{ .Values.config.processing.maxFileSize }},
-        "supported_formats": {{ .Values.config.processing.supportedFormats | toJson }},
-        "timeout": {{ .Values.config.processing.timeout }}
-      }
+      "supported_formats": {{ .Values.config.processing.supportedFormats | toJson }}
     }
   templates_config.json: |
     {
-      "templates": {
-        "default": {
-          "name": {{ .Values.templates.default.name | quote }},
-          "description": {{ .Values.templates.default.description | quote }},
-          "sections": {{ .Values.templates.default.sections | toJson }}
-        }
-      }
+      "default_template": {{ .Values.templates.defaultTemplate | quote }},
+      "template_settings": {
+        "include_technical_info": {{ .Values.templates.templateSettings.includeTechnicalInfo }},
+        "include_file_datetime": {{ .Values.templates.templateSettings.includeFileDatetime }},
+        "language": {{ .Values.templates.templateSettings.language | quote }},
+        "max_tokens": {{ .Values.templates.templateSettings.maxTokens }},
+        "auto_detect_meeting_type": {{ .Values.templates.templateSettings.autoDetectMeetingType }}
+      },
+      "template_descriptions": {{ .Values.templates.templateDescriptions | toJson }},
+      "meeting_type_keywords": {{ .Values.templates.meetingTypeKeywords | toJson }},
+      "auto_detection_settings": {{ .Values.templates.autoDetectionSettings | toJson }}
     }
   gunicorn.conf.py: |
-    import multiprocessing
+    # Gunicorn configuration для Meeting Processor
     import os
+    import multiprocessing
     
     # Server socket
-    bind = "0.0.0.0:8000"
+    bind = f"0.0.0.0:{os.environ.get('PORT', 8000)}"
     backlog = 2048
     
     # Worker processes
     workers = int(os.environ.get('GUNICORN_WORKERS', {{ .Values.web.gunicorn.workers }}))
     worker_class = "sync"
     worker_connections = 1000
+    max_requests = {{ .Values.web.gunicorn.maxRequests }}
+    max_requests_jitter = {{ .Values.web.gunicorn.maxRequestsJitter }}
     timeout = int(os.environ.get('GUNICORN_TIMEOUT', {{ .Values.web.gunicorn.timeout }}))
     keepalive = 2
-    threads = int(os.environ.get('GUNICORN_THREADS', {{ .Values.web.gunicorn.threads }}))
+    
+    # Restart workers
     max_requests = int(os.environ.get('GUNICORN_MAX_REQUESTS', {{ .Values.web.gunicorn.maxRequests }}))
     max_requests_jitter = int(os.environ.get('GUNICORN_MAX_REQUESTS_JITTER', {{ .Values.web.gunicorn.maxRequestsJitter }}))
     preload_app = True
     
     # Logging
-    accesslog = "-"
-    errorlog = "-"
-    loglevel = "info"
+    loglevel = os.environ.get('LOG_LEVEL', 'info')
+    accesslog = '-'  # stdout
+    errorlog = '-'   # stderr
     access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
     
     # Process naming
-    proc_name = 'meeting-processor-web'
+    proc_name = 'meeting_processor_web'
     
     # Server mechanics
     daemon = False
-    pidfile = None
+    pidfile = '/tmp/gunicorn.pid'
     user = None
     group = None
     tmp_upload_dir = None
     
-    # SSL
-    keyfile = None
-    certfile = None
+    # SSL (для HTTPS)
+    keyfile = os.environ.get('SSL_KEYFILE')
+    certfile = os.environ.get('SSL_CERTFILE')
+    
+    # Worker tuning
+    worker_tmp_dir = '/dev/shm'  # Использовать RAM для temporary files
+    
+    def when_ready(server):
+        server.log.info("🚀 Meeting Processor Server готов к работе")
+    
+    def worker_int(worker):
+        worker.log.info("💀 Worker получил SIGINT")
+    
+    def pre_fork(server, worker):
+        server.log.info(f"👶 Worker {worker.pid} создается")
+    
+    def post_fork(server, worker):
+        server.log.info(f"✅ Worker {worker.pid} запущен")
+    
+    def pre_exec(server):
+        server.log.info("🔄 Перезапуск сервера")
+    
+    def on_exit(server):
+        server.log.info("👋 Meeting Processor Server остановлен")

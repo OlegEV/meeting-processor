@@ -34,11 +34,11 @@ web:
   
   # Gunicorn configuration
   gunicorn:
-    workers: 6
-    threads: 4
-    timeout: 600
+    workers: 1
+    threads: 2
+    timeout: 300
     maxRequests: 1000
-    maxRequestsJitter: 50
+    maxRequestsJitter: 100
   
   # Health checks
   livenessProbe:
@@ -169,48 +169,154 @@ config:
     smartFormat: true
     punctuate: true
     diarize: true
-    multichannel: false
-    alternatives: 1
-    numerals: true
-    interimResults: false
-    endpointing: 300
-    vadTurnoff: 500
-    encoding: "linear16"
-    channels: 1
-    sampleRate: 16000
+    paragraphs: true
+    utterances: true
+    summarize: false
+    detectLanguage: false
   
   claude:
-    model: "claude-3-5-sonnet-20241022"
-    maxTokens: 8000
+    model: "claude-sonnet-4-20250514"
+    maxTokens: 2000
     temperature: 0.3
   
   processing:
-    chunkSize: 1024
-    overlap: 128
-    maxFileSize: 104857600
+    chunkDurationMinutes: 15
+    maxFileSizeMb: 25
+    maxDurationMinutes: 15
+    requestPauseSeconds: 5
+    maxRetries: 3
+    keepAudioFile: false
     supportedFormats:
-      - "mp3"
-      - "wav"
-      - "m4a"
-      - "ogg"
-      - "flac"
-      - "mp4"
-      - "avi"
-      - "mov"
-      - "mkv"
-    timeout: 300
+      video:
+        - ".mp4"
+        - ".avi"
+        - ".mov"
+        - ".mkv"
+        - ".wmv"
+        - ".webm"
+      nativeAudio:
+        - ".mp3"
+        - ".wav"
+        - ".flac"
+        - ".aac"
+        - ".m4a"
+        - ".ogg"
+      convertAudio:
+        - ".wma"
+        - ".opus"
+    deepgramTimeoutSeconds: 300
 
 # Templates configuration
 templates:
-  default:
-    name: "Стандартный протокол"
-    description: "Базовый шаблон для протокола встречи"
-    sections:
-      - "Участники"
-      - "Основные темы"
-      - "Принятые решения"
-      - "Задачи и ответственные"
-      - "Следующие шаги"
+  defaultTemplate: "standard"
+  templateSettings:
+    includeTechnicalInfo: true
+    includeFileDatetime: true
+    language: "ru"
+    maxTokens: 2000
+    autoDetectMeetingType: false
+  
+  templateDescriptions:
+    standard: "Универсальный шаблон для любых встреч"
+    business: "Официальный протокол для деловых встреч"
+    project: "Фокус на управлении проектами и задачами"
+    standup: "Краткий формат для ежедневных стендапов"
+    interview: "Структурированный отчет об интервью"
+    brainstorm: "Организация идей и креативных сессий"
+    review: "Ретроспективы и анализ результатов"
+    planning: "Стратегическое планирование и постановка целей"
+    technical: "Технические обсуждения и архитектурные решения"
+    sales: "Встречи по продажам и работе с клиентами"
+  
+  meetingTypeKeywords:
+    standup:
+      - "стендап"
+      - "standup"
+      - "daily"
+      - "что делал"
+      - "что буду делать"
+      - "блокеры"
+      - "вчера"
+      - "сегодня"
+      - "планы на день"
+    project:
+      - "проект"
+      - "milestone"
+      - "дедлайн"
+      - "задача"
+      - "спринт"
+      - "backlog"
+      - "риск"
+      - "планирование"
+      - "этап"
+    business:
+      - "бюджет"
+      - "roi"
+      - "прибыль"
+      - "стратегия"
+      - "клиент"
+      - "продажи"
+      - "договор"
+      - "партнер"
+      - "инвестиции"
+    interview:
+      - "интервью"
+      - "кандидат"
+      - "опыт работы"
+      - "навыки"
+      - "почему выбрали"
+      - "зарплата"
+      - "собеседование"
+    brainstorm:
+      - "идея"
+      - "мозговой штурм"
+      - "креатив"
+      - "предложение"
+      - "как если"
+      - "а что если"
+      - "brainstorm"
+    review:
+      - "ретроспектива"
+      - "что прошло хорошо"
+      - "что улучшить"
+      - "проблемы"
+      - "feedback"
+      - "анализ"
+      - "retrospective"
+    technical:
+      - "код"
+      - "архитектура"
+      - "баг"
+      - "deploy"
+      - "api"
+      - "database"
+      - "server"
+      - "разработка"
+      - "система"
+    sales:
+      - "продажа"
+      - "клиент"
+      - "сделка"
+      - "kpi"
+      - "конверсия"
+      - "лид"
+      - "crm"
+      - "воронка"
+      - "закрытие"
+    planning:
+      - "план"
+      - "стратегия"
+      - "цели"
+      - "roadmap"
+      - "планирование"
+      - "задачи"
+      - "приоритеты"
+      - "ресурсы"
+  
+  autoDetectionSettings:
+    minKeywordMatches: 2
+    confidenceThreshold: 0.6
+    fallbackTemplate: "standard"
 
 # Secrets (will be created externally or via sealed-secrets)
 secrets:
@@ -222,7 +328,7 @@ secrets:
   # Bot configuration
   botConfig:
     allowedUsers: []
-    maxFileSize: 104857600
+    maxFileSize: 26214400  # 25MB in bytes
     supportedFormats:
       - "mp3"
       - "wav"
@@ -233,6 +339,11 @@ secrets:
       - "avi"
       - "mov"
       - "mkv"
+      - "wmv"
+      - "webm"
+      - "aac"
+      - "wma"
+      - "opus"
   
   # Team configuration
   teamConfig:
