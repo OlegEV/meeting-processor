@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "meeting-processor.fullname" . }}-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "meeting-processor.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  config.json: |
+    {
+      "deepgram": {
+        "model": {{ .Values.config.deepgram.model | quote }},
+        "language": {{ .Values.config.deepgram.language | quote }},
+        "smart_format": {{ .Values.config.deepgram.smartFormat }},
+        "punctuate": {{ .Values.config.deepgram.punctuate }},
+        "diarize": {{ .Values.config.deepgram.diarize }},
+        "multichannel": {{ .Values.config.deepgram.multichannel }},
+        "alternatives": {{ .Values.config.deepgram.alternatives }},
+        "numerals": {{ .Values.config.deepgram.numerals }},
+        "search": [],
+        "replace": [],
+        "keywords": [],
+        "interim_results": {{ .Values.config.deepgram.interimResults }},
+        "endpointing": {{ .Values.config.deepgram.endpointing }},
+        "vad_turnoff": {{ .Values.config.deepgram.vadTurnoff }},
+        "encoding": {{ .Values.config.deepgram.encoding | quote }},
+        "channels": {{ .Values.config.deepgram.channels }},
+        "sample_rate": {{ .Values.config.deepgram.sampleRate }}
+      },
+      "claude": {
+        "model": {{ .Values.config.claude.model | quote }},
+        "max_tokens": {{ .Values.config.claude.maxTokens }},
+        "temperature": {{ .Values.config.claude.temperature }}
+      },
+      "processing": {
+        "chunk_size": {{ .Values.config.processing.chunkSize }},
+        "overlap": {{ .Values.config.processing.overlap }},
+        "max_file_size": {{ .Values.config.processing.maxFileSize }},
+        "supported_formats": {{ .Values.config.processing.supportedFormats | toJson }},
+        "timeout": {{ .Values.config.processing.timeout }}
+      }
+    }
+  templates_config.json: |
+    {
+      "templates": {
+        "default": {
+          "name": {{ .Values.templates.default.name | quote }},
+          "description": {{ .Values.templates.default.description | quote }},
+          "sections": {{ .Values.templates.default.sections | toJson }}
+        }
+      }
+    }
+  gunicorn.conf.py: |
+    import multiprocessing
+    import os
+    
+    # Server socket
+    bind = "0.0.0.0:8000"
+    backlog = 2048
+    
+    # Worker processes
+    workers = int(os.environ.get('GUNICORN_WORKERS', {{ .Values.web.gunicorn.workers }}))
+    worker_class = "sync"
+    worker_connections = 1000
+    timeout = int(os.environ.get('GUNICORN_TIMEOUT', {{ .Values.web.gunicorn.timeout }}))
+    keepalive = 2
+    threads = int(os.environ.get('GUNICORN_THREADS', {{ .Values.web.gunicorn.threads }}))
+    max_requests = int(os.environ.get('GUNICORN_MAX_REQUESTS', {{ .Values.web.gunicorn.maxRequests }}))
+    max_requests_jitter = int(os.environ.get('GUNICORN_MAX_REQUESTS_JITTER', {{ .Values.web.gunicorn.maxRequestsJitter }}))
+    preload_app = True
+    
+    # Logging
+    accesslog = "-"
+    errorlog = "-"
+    loglevel = "info"
+    access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
+    
+    # Process naming
+    proc_name = 'meeting-processor-web'
+    
+    # Server mechanics
+    daemon = False
+    pidfile = None
+    user = None
+    group = None
+    tmp_upload_dir = None
+    
+    # SSL
+    keyfile = None
+    certfile = None

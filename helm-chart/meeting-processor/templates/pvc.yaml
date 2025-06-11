@@ -1,0 +1,91 @@
+{{- if .Values.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "meeting-processor.fullname" . }}-logs
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "meeting-processor.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - {{ .Values.persistence.logs.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.logs.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "meeting-processor.fullname" . }}-web-uploads
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "meeting-processor.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web-storage
+spec:
+  accessModes:
+    - {{ .Values.persistence.webUploads.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.webUploads.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "meeting-processor.fullname" . }}-web-output
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "meeting-processor.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web-storage
+spec:
+  accessModes:
+    - {{ .Values.persistence.webOutput.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.webOutput.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "meeting-processor.fullname" . }}-bot-temp
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "meeting-processor.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bot-storage
+spec:
+  accessModes:
+    - {{ .Values.persistence.botTemp.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.botTemp.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "meeting-processor.fullname" . }}-bot-output
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "meeting-processor.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bot-storage
+spec:
+  accessModes:
+    - {{ .Values.persistence.botOutput.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.botOutput.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+{{- end }}

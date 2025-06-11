@@ -1,0 +1,24 @@
+{{- if .Values.web.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "meeting-processor.fullname" . }}-web
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "meeting-processor.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: meeting-processor
+    environment: {{ .Values.environment }}
+spec:
+  type: {{ .Values.web.service.type }}
+  ports:
+  - port: {{ .Values.web.service.port }}
+    targetPort: {{ .Values.web.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    app.kubernetes.io/name: {{ include "meeting-processor.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: web
+{{- end }}

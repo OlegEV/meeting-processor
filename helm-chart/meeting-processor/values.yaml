@@ -1,0 +1,274 @@
+# Default values for meeting-processor
+# This is a YAML-formatted file.
+
+# Global settings
+global:
+  imageRegistry: "nexus.netlab.local"
+  imagePullSecrets: []
+
+# Namespace
+namespace: meeting-processor
+
+# Web service configuration
+web:
+  enabled: true
+  image:
+    repository: meeting-processor-web
+    tag: "v1.0.0"
+    pullPolicy: Always
+  
+  replicaCount: 3
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+  
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2000m"
+  
+  # Gunicorn configuration
+  gunicorn:
+    workers: 6
+    threads: 4
+    timeout: 600
+    maxRequests: 1000
+    maxRequestsJitter: 50
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 90
+    periodSeconds: 30
+    timeoutSeconds: 15
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 45
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 3
+  
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+# Bot service configuration
+bot:
+  enabled: true
+  image:
+    repository: meeting-processor-bot
+    tag: "v1.0.0"
+    pullPolicy: Always
+  
+  replicaCount: 1
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  
+  # Health checks
+  livenessProbe:
+    exec:
+      command:
+        - python
+        - -c
+        - "import sys; sys.exit(0)"
+    initialDelaySeconds: 60
+    periodSeconds: 60
+    timeoutSeconds: 15
+    failureThreshold: 3
+  
+  readinessProbe:
+    exec:
+      command:
+        - python
+        - -c
+        - "import sys; sys.exit(0)"
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/client-body-buffer-size: "2m"
+    nginx.ingress.kubernetes.io/client-max-body-size: "200m"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  
+  hosts:
+    - host: meeting-processor.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  
+  tls:
+    - secretName: meeting-processor-tls
+      hosts:
+        - meeting-processor.example.com
+
+# Persistent storage
+persistence:
+  enabled: true
+  storageClass: ""  # Use default storage class
+  
+  logs:
+    size: 5Gi
+    accessMode: ReadWriteMany
+  
+  webUploads:
+    size: 10Gi
+    accessMode: ReadWriteMany
+  
+  webOutput:
+    size: 10Gi
+    accessMode: ReadWriteMany
+  
+  botTemp:
+    size: 5Gi
+    accessMode: ReadWriteMany
+  
+  botOutput:
+    size: 10Gi
+    accessMode: ReadWriteMany
+
+# Configuration
+config:
+  deepgram:
+    model: "nova-2"
+    language: "ru"
+    smartFormat: true
+    punctuate: true
+    diarize: true
+    multichannel: false
+    alternatives: 1
+    numerals: true
+    interimResults: false
+    endpointing: 300
+    vadTurnoff: 500
+    encoding: "linear16"
+    channels: 1
+    sampleRate: 16000
+  
+  claude:
+    model: "claude-3-5-sonnet-20241022"
+    maxTokens: 8000
+    temperature: 0.3
+  
+  processing:
+    chunkSize: 1024
+    overlap: 128
+    maxFileSize: 104857600
+    supportedFormats:
+      - "mp3"
+      - "wav"
+      - "m4a"
+      - "ogg"
+      - "flac"
+      - "mp4"
+      - "avi"
+      - "mov"
+      - "mkv"
+    timeout: 300
+
+# Templates configuration
+templates:
+  default:
+    name: "Стандартный протокол"
+    description: "Базовый шаблон для протокола встречи"
+    sections:
+      - "Участники"
+      - "Основные темы"
+      - "Принятые решения"
+      - "Задачи и ответственные"
+      - "Следующие шаги"
+
+# Secrets (will be created externally or via sealed-secrets)
+secrets:
+  # These should be provided via external secret management
+  deepgramApiKey: ""
+  claudeApiKey: ""
+  telegramBotToken: ""
+  
+  # Bot configuration
+  botConfig:
+    allowedUsers: []
+    maxFileSize: 104857600
+    supportedFormats:
+      - "mp3"
+      - "wav"
+      - "m4a"
+      - "ogg"
+      - "flac"
+      - "mp4"
+      - "avi"
+      - "mov"
+      - "mkv"
+  
+  # Team configuration
+  teamConfig:
+    teams:
+      default:
+        name: "Команда по умолчанию"
+        members: []
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Environment
+environment: production

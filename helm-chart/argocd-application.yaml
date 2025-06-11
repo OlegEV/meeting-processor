@@ -1,0 +1,48 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: meeting-processor
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: meeting-processor
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-org/meeting-processor.git
+    targetRevision: HEAD
+    path: helm-chart/meeting-processor
+    helm:
+      valueFiles:
+        - values.yaml
+      parameters:
+        - name: namespace
+          value: meeting-processor
+        - name: web.image.tag
+          value: v1.0.0
+        - name: bot.image.tag
+          value: v1.0.0
+        - name: ingress.hosts[0].host
+          value: meeting-processor.example.com
+        - name: secrets.deepgramApiKey
+          value: ""  # Заполните через ArgoCD UI или external secrets
+        - name: secrets.claudeApiKey
+          value: ""  # Заполните через ArgoCD UI или external secrets
+        - name: secrets.telegramBotToken
+          value: ""  # Заполните через ArgoCD UI или external secrets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: meeting-processor
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  revisionHistoryLimit: 10
