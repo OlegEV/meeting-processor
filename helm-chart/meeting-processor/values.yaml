@@ -126,7 +126,7 @@ ingress:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
   
   hosts:
-    - host: meeting-processor.example.com
+    - host: meeting-processor.ekassir.com
       paths:
         - path: /
           pathType: Prefix
@@ -134,7 +134,7 @@ ingress:
   tls:
     - secretName: meeting-processor-tls
       hosts:
-        - meeting-processor.example.com
+        - meeting-processor.ekassir.com
 
 # Persistent storage
 persistence:
