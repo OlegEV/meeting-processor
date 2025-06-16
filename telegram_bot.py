@@ -261,11 +261,7 @@ class MeetingBot:
                 "auto_detect_links": True,
                 "cloud_services": {
                     "google_drive": True,
-                    "dropbox": True,
-                    "onedrive": True,
-                    "yandex_disk": True,
-                    "mega": True,
-                    "wetransfer": True
+                    "yandex_disk": True
                 }
             },
             "notifications": {
@@ -1057,8 +1053,7 @@ class MeetingBot:
 /formats - Поддерживаемые форматы ссылок
 
 **Поддерживаемые сервисы:**
-☁️ Google Drive, Dropbox, OneDrive
-☁️ Яндекс.Диск, Mega, WeTransfer
+☁️ Google Drive, Яндекс.Диск
 🔗 Любые прямые HTTP ссылки
 """
         
@@ -1177,11 +1172,7 @@ class MeetingBot:
             if enabled:
                 service_names = {
                     'google_drive': 'Google Drive',
-                    'dropbox': 'Dropbox', 
-                    'onedrive': 'OneDrive',
-                    'yandex_disk': 'Яндекс.Диск',
-                    'mega': 'Mega',
-                    'wetransfer': 'WeTransfer'
+                    'yandex_disk': 'Яндекс.Диск'
                 }
                 enabled_services.append(service_names.get(service, service))
         
@@ -1207,7 +1198,7 @@ class MeetingBot:
 **💡 Примеры использования:**
 ```
 /url https://drive.google.com/file/d/abc123
-/url https://dropbox.com/s/xyz789/meeting.mp3
+/url https://yadi.sk/d/xyz789/meeting.mp3
 /check https://example.com/conference.mp4
 ```
         """
@@ -1761,7 +1752,7 @@ class MeetingBot:
         
         if self.url_processor:
             print("🔗 Поддержка URL обработки включена")
-            print("☁️ Облачные сервисы: Google Drive, Dropbox, OneDrive, Яндекс.Диск, Mega, WeTransfer")
+            print("☁️ Облачные сервисы: Google Drive, Яндекс.Диск")
         else:
             print("⚠️ URL обработка недоступна")
         

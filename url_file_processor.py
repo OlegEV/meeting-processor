@@ -30,28 +30,10 @@ class CloudServiceHandler:
                 r'drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)',
                 r'docs\.google\.com/.*/(.*)/edit'
             ],
-            'dropbox': [
-                r'dropbox\.com/s/([a-zA-Z0-9_-]+)',
-                r'dropbox\.com/sh/([a-zA-Z0-9_-]+)',
-                r'www\.dropbox\.com/s/([a-zA-Z0-9_-]+)'
-            ],
-            'onedrive': [
-                r'1drv\.ms/[a-zA-Z]/([a-zA-Z0-9_-]+)',
-                r'onedrive\.live\.com/.*resid=([a-zA-Z0-9_-]+)',
-                r'.*-my\.sharepoint\.com/.*'
-            ],
             'yandex_disk': [
                 r'disk\.yandex\.[a-z]+/d/([a-zA-Z0-9_-]+)',
                 r'disk\.yandex\.[a-z]+/i/([a-zA-Z0-9_-]+)',
                 r'yadi\.sk/[a-zA-Z]/([a-zA-Z0-9_-]+)'
-            ],
-            'mega': [
-                r'mega\.nz/file/([a-zA-Z0-9_-]+)',
-                r'mega\.co\.nz/.*#!([a-zA-Z0-9_-]+)'
-            ],
-            'wetransfer': [
-                r'wetransfer\.com/downloads/([a-zA-Z0-9_-]+)',
-                r'we\.tl/[a-zA-Z]-([a-zA-Z0-9_-]+)'
             ]
         }
         
@@ -78,29 +60,6 @@ class CloudServiceHandler:
                 file_id = match.group(1)
                 return f"https://drive.google.com/uc?export=download&id={file_id}"
         
-        return None
-    
-    @staticmethod
-    def convert_dropbox_url(url: str) -> Optional[str]:
-        """Конвертирует Dropbox ссылку в прямую ссылку для скачивания"""
-        if 'dropbox.com' in url:
-            # Заменяем dl=0 на dl=1 для прямого скачивания
-            if 'dl=0' in url:
-                return url.replace('dl=0', 'dl=1')
-            elif '?' in url:
-                return url + '&dl=1'
-            else:
-                return url + '?dl=1'
-        return None
-    
-    @staticmethod
-    def convert_onedrive_url(url: str) -> Optional[str]:
-        """Конвертирует OneDrive ссылку в прямую ссылку для скачивания"""
-        if '1drv.ms' in url or 'onedrive.live.com' in url or 'sharepoint.com' in url:
-            # OneDrive требует более сложной обработки
-            # Для упрощения возвращаем оригинальный URL
-            # В реальной реализации можно использовать OneDrive API
-            return url
         return None
     
     @staticmethod
@@ -410,10 +369,6 @@ class URLFileProcessor:
         try:
             if service == 'google_drive':
                 return self.cloud_handler.convert_google_drive_url(url)
-            elif service == 'dropbox':
-                return self.cloud_handler.convert_dropbox_url(url)
-            elif service == 'onedrive':
-                return self.cloud_handler.convert_onedrive_url(url)
             elif service == 'yandex_disk':
                 # Для Яндекс.Диска используем API для получения прямой ссылки
                 direct_url = await self.cloud_handler.get_yandex_disk_download_url(self.session, url)
