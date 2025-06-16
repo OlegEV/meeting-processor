@@ -532,21 +532,21 @@ class MeetingBot:
                 file_type_emoji = "🎵" if "audio" in file_info['content_type'] else "🎬"
                 cloud_info = f"\n☁️ Сервис: {self._escape_markdown(file_info['cloud_service'].title())}" if file_info['is_cloud'] else ""
                 
-                # Безопасно экранируем строки
-                filename = self._escape_markdown(file_info['filename'])
+                # Очищаем имя файла без экранирования (так как не используем backticks)
+                filename = self._clean_filename_for_display(file_info['filename'])
                 content_type = self._escape_markdown(file_info['content_type'])
                 template_escaped = self._escape_markdown(template_name)
                 
                 info_message = (
                     f"{file_type_emoji} *Файл обнаружен:*\n"
-                    f"📎 Имя: `{filename}`\n"
+                    f"📎 Имя: {filename}\n"
                     f"📊 Размер: {file_info['size_mb']} МБ\n"
-                    f"🎯 Тип: `{content_type}`{cloud_info}\n"
-                    f"📝 Шаблон: `{template_escaped}`\n\n"
+                    f"🎯 Тип: {content_type}{cloud_info}\n"
+                    f"📝 Шаблон: {template_escaped}\n\n"
                     f"⏳ Начинаю скачивание и обработку..."
                 )
                 
-                await reply_func(info_message, parse_mode=ParseMode.MARKDOWN)
+                await reply_func(info_message)
                 
                 # Создаем временную директорию
                 temp_dir = tempfile.mkdtemp(prefix="url_download_")
@@ -591,19 +591,51 @@ class MeetingBot:
             
             return False, None, None    
     
+    def _clean_filename_for_display(self, filename: str) -> str:
+        """Очищает имя файла для корректного отображения"""
+        if not filename or filename == 'Неизвестно':
+            return filename
+        
+        # Заменяем обратные слеши на подчеркивания
+        filename = filename.replace('\\', '_')
+        
+        # Заменяем другие проблемные символы
+        problematic_chars = ['<', '>', ':', '"', '|', '?', '*']
+        for char in problematic_chars:
+            filename = filename.replace(char, '_')
+        
+        # Убираем множественные подчеркивания
+        while '__' in filename:
+            filename = filename.replace('__', '_')
+        
+        return filename
+    
     def _escape_markdown(self, text: str) -> str:
         """Экранирует специальные символы для Markdown"""
         if not text:
             return "Неизвестно"
         
         # Список символов, которые нужно экранировать в Markdown
-        # Убираем точку из списка, так как она не требует экранирования в обычном тексте
-        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '!']
+        # Убираем дефис и подчеркивание из списка для имен файлов
+        special_chars = ['*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '=', '|', '{', '}', '!']
         
         for char in special_chars:
             text = text.replace(char, f'\\{char}')
         
-        return text    
+        return text
+    
+    def _escape_markdown_filename(self, text: str) -> str:
+        """Специальное экранирование для имен файлов (без дефисов и подчеркиваний)"""
+        if not text:
+            return "Неизвестно"
+        
+        # Для имен файлов экранируем только самые критичные символы
+        special_chars = ['*', '[', ']', '`']
+        
+        for char in special_chars:
+            text = text.replace(char, f'\\{char}')
+        
+        return text
 
     async def _show_url_file_info(self, update: Update, url: str):
         """Показывает информацию о файле по URL"""
@@ -637,8 +669,8 @@ class MeetingBot:
                 status_emoji = "✅" if file_info['supported'] else "❌"
                 cloud_info = f"\n☁️ Сервис: {self._escape_markdown(file_info['cloud_service'].title())}" if file_info['is_cloud'] else ""
                 
-                # Безопасно экранируем все строки
-                filename = self._escape_markdown(file_info['filename'] or 'Неизвестно')
+                # Очищаем имя файла без экранирования (так как не используем backticks)
+                filename = self._clean_filename_for_display(file_info['filename'] or 'Неизвестно')
                 content_type = self._escape_markdown(file_info['content_type'])
                 reason = self._escape_markdown(file_info['reason'])
                 
@@ -650,10 +682,10 @@ class MeetingBot:
                 
                 info_message = (
                     f"{file_type_emoji} *Информация о файле:*\n\n"
-                    f"📎 Имя: `{filename}`\n"
+                    f"📎 Имя: {filename}\n"
                     f"📊 Размер: {file_info['size_mb']} МБ\n"
-                    f"🎯 Тип: `{content_type}`\n"
-                    f"🔗 URL: `{display_url}`{cloud_info}\n\n"
+                    f"🎯 Тип: {content_type}\n"
+                    f"🔗 URL: {display_url}{cloud_info}\n\n"
                     f"{status_emoji} *Статус:* {reason}"
                 )
                 
@@ -670,11 +702,10 @@ class MeetingBot:
                     
                     await reply_func(
                         info_message,
-                        parse_mode=ParseMode.MARKDOWN,
                         reply_markup=reply_markup
                     )
                 else:
-                    await reply_func(info_message, parse_mode=ParseMode.MARKDOWN)
+                    await reply_func(info_message)
                 
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения информации о файле {url}: {e}")

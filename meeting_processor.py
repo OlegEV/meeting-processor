@@ -117,6 +117,10 @@ class MeetingProcessor:
         # Инициализация mapper'а спикеров
         self.speaker_mapper = SpeakerMapper(self.team_identifier) if SpeakerMapper else None
     
+    def set_progress_callback(self, callback: Callable[[int, str], None]):
+        """Устанавливает callback функцию для отслеживания прогресса"""
+        self.progress_callback = callback
+    
     def _update_progress(self, progress: int, message: str):
         """Обновляет прогресс через callback"""
         if self.progress_callback:

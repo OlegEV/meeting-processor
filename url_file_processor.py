@@ -41,6 +41,7 @@ class CloudServiceHandler:
                 r'.*-my\.sharepoint\.com/.*'
             ],
             'yandex_disk': [
+                r'disk\.yandex\.[a-z]+/d/([a-zA-Z0-9_-]+)',
                 r'disk\.yandex\.[a-z]+/i/([a-zA-Z0-9_-]+)',
                 r'yadi\.sk/[a-zA-Z]/([a-zA-Z0-9_-]+)'
             ],
@@ -106,10 +107,29 @@ class CloudServiceHandler:
     def convert_yandex_disk_url(url: str) -> Optional[str]:
         """Конвертирует Яндекс.Диск ссылку в прямую ссылку для скачивания"""
         if 'yadi.sk' in url or 'disk.yandex' in url:
-            # Яндекс.Диск API требует дополнительного запроса
-            # Для упрощения возвращаем оригинальный URL
+            # Для публичных ссылок Яндекс.Диска используем API для получения прямой ссылки
+            # Возвращаем URL для дальнейшей обработки через API
             return url
         return None
+    
+    @staticmethod
+    async def get_yandex_disk_download_url(session, public_url: str) -> Optional[str]:
+        """Получает прямую ссылку для скачивания с Яндекс.Диска через API"""
+        try:
+            # API Яндекс.Диска для получения информации о публичном файле
+            api_url = "https://cloud-api.yandex.net/v1/disk/public/resources/download"
+            params = {"public_key": public_url}
+            
+            async with session.get(api_url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("href")
+                else:
+                    logger.error(f"Ошибка API Яндекс.Диска: {response.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"Ошибка получения ссылки с Яндекс.Диска: {e}")
+            return None
 
 class URLFileProcessor:
     """Основной класс для обработки файлов по URL"""
@@ -187,60 +207,120 @@ class URLFileProcessor:
         """
         Получает информацию о файле по URL без скачивания
         """
+        original_url = url
         try:
             # Конвертируем облачные ссылки
             is_cloud, service = self.cloud_handler.is_cloud_url(url)
+            converted_url = None
+            
             if is_cloud:
                 converted_url = await self._convert_cloud_url(url, service)
-                if converted_url:
+                if converted_url and converted_url != url:
                     url = converted_url
+                elif service == 'yandex_disk' and not converted_url:
+                    # Если не удалось получить прямую ссылку для Яндекс.Диска
+                    return {
+                        'url': original_url,
+                        'original_url': original_url,
+                        'size_bytes': 0,
+                        'size_mb': 0.0,
+                        'content_type': 'text/html',
+                        'filename': 'Неизвестно',
+                        'is_cloud': is_cloud,
+                        'cloud_service': service,
+                        'supported': False,
+                        'reason': 'Не удалось получить прямую ссылку для скачивания с Яндекс.Диска'
+                    }
             
-            async with self.session.head(url, allow_redirects=True) as response:
-                if response.status != 200:
-                    # Пробуем GET запрос, если HEAD не поддерживается
-                    async with self.session.get(url, allow_redirects=True) as get_response:
-                        if get_response.status != 200:
-                            return None
-                        response = get_response
-                
-                headers = response.headers
-                
-                # Получаем информацию о файле
-                file_info = {
-                    'url': str(response.url),
-                    'original_url': url,
-                    'size_bytes': int(headers.get('content-length', 0)),
-                    'size_mb': round(int(headers.get('content-length', 0)) / 1024 / 1024, 2),
-                    'content_type': headers.get('content-type', '').split(';')[0],
-                    'filename': self._extract_filename(response, url),
-                    'is_cloud': is_cloud,
-                    'cloud_service': service if is_cloud else None,
-                    'supported': False,
-                    'reason': ''
-                }
-                
-                # Проверяем размер файла
-                if file_info['size_mb'] > self.max_file_size_mb:
-                    file_info['reason'] = f"Файл слишком большой: {file_info['size_mb']} МБ (макс. {self.max_file_size_mb} МБ)"
-                    return file_info
-                
-                # Проверяем MIME тип
-                if file_info['content_type'] not in self.supported_mime_types:
-                    # Проверяем по расширению файла
-                    extension = Path(file_info['filename']).suffix.lower()
-                    if extension not in self.supported_extensions:
-                        file_info['reason'] = f"Неподдерживаемый тип файла: {file_info['content_type']}"
-                        return file_info
-                
-                file_info['supported'] = True
-                file_info['reason'] = 'OK'
+            # Пробуем HEAD запрос сначала
+            try:
+                async with self.session.head(url, allow_redirects=True) as response:
+                    if response.status == 200:
+                        headers = response.headers
+                        response_url = str(response.url)
+                    else:
+                        raise aiohttp.ClientResponseError(
+                            request_info=response.request_info,
+                            history=response.history,
+                            status=response.status
+                        )
+            except (aiohttp.ClientResponseError, aiohttp.ClientError):
+                # Если HEAD не работает, пробуем GET с ограничением размера
+                try:
+                    async with self.session.get(url, allow_redirects=True) as response:
+                        if response.status != 200:
+                            return {
+                                'url': original_url,
+                                'original_url': original_url,
+                                'size_bytes': 0,
+                                'size_mb': 0.0,
+                                'content_type': 'text/html',
+                                'filename': 'Неизвестно',
+                                'is_cloud': is_cloud,
+                                'cloud_service': service if is_cloud else None,
+                                'supported': False,
+                                'reason': f'HTTP ошибка: {response.status}'
+                            }
+                        headers = response.headers
+                        response_url = str(response.url)
+                except Exception as e:
+                    return {
+                        'url': original_url,
+                        'original_url': original_url,
+                        'size_bytes': 0,
+                        'size_mb': 0.0,
+                        'content_type': 'text/html',
+                        'filename': 'Неизвестно',
+                        'is_cloud': is_cloud,
+                        'cloud_service': service if is_cloud else None,
+                        'supported': False,
+                        'reason': f'Ошибка доступа к файлу: {str(e)}'
+                    }
+            
+            # Получаем информацию о файле
+            content_length = headers.get('content-length', '0')
+            try:
+                size_bytes = int(content_length)
+            except (ValueError, TypeError):
+                size_bytes = 0
+            
+            content_type = headers.get('content-type', '').split(';')[0].strip()
+            
+            file_info = {
+                'url': response_url,
+                'original_url': original_url,
+                'size_bytes': size_bytes,
+                'size_mb': round(size_bytes / 1024 / 1024, 2) if size_bytes > 0 else 0.0,
+                'content_type': content_type,
+                'filename': self._extract_filename_from_headers_and_url(headers, response_url),
+                'is_cloud': is_cloud,
+                'cloud_service': service if is_cloud else None,
+                'supported': False,
+                'reason': ''
+            }
+            
+            # Проверяем размер файла
+            if file_info['size_mb'] > self.max_file_size_mb and file_info['size_mb'] > 0:
+                file_info['reason'] = f"Файл слишком большой: {file_info['size_mb']} МБ (макс. {self.max_file_size_mb} МБ)"
                 return file_info
+            
+            # Проверяем MIME тип
+            if content_type not in self.supported_mime_types:
+                # Проверяем по расширению файла
+                extension = Path(file_info['filename']).suffix.lower()
+                if extension not in self.supported_extensions:
+                    file_info['reason'] = f"Неподдерживаемый тип файла: {content_type}"
+                    return file_info
+            
+            file_info['supported'] = True
+            file_info['reason'] = 'OK'
+            return file_info
                 
         except asyncio.TimeoutError:
-            logger.error(f"Таймаут при получении информации о файле: {url}")
+            logger.error(f"Таймаут при получении информации о файле: {original_url}")
             return None
         except Exception as e:
-            logger.error(f"Ошибка получения информации о файле {url}: {str(e)}")
+            logger.error(f"Ошибка получения информации о файле {original_url}: {str(e)}")
             return None
     
     async def download_file(self, url: str, output_dir: str) -> Optional[Tuple[str, Dict]]:
@@ -264,12 +344,24 @@ class URLFileProcessor:
             
             # Определяем имя файла
             filename = file_info['filename']
-            if not filename:
-                filename = f"downloaded_file_{hash(url) % 10000}"
-                # Добавляем расширение на основе content-type
+            if not filename or filename in ['UTF-8', 'utf-8', 'unknown_file', 'downloaded_file']:
+                # Генерируем имя файла на основе content-type и URL
+                base_name = f"file_{hash(url) % 10000}"
                 extension = self._get_extension_from_mime(file_info['content_type'])
-                if extension:
-                    filename += extension
+                
+                if not extension and file_info['is_cloud'] and file_info['cloud_service'] == 'yandex_disk':
+                    # Для Яндекс.Диска по умолчанию используем расширение на основе MIME
+                    if 'audio' in file_info['content_type']:
+                        extension = '.mp3'
+                    elif 'video' in file_info['content_type']:
+                        extension = '.mp4'
+                
+                filename = base_name + (extension or '.bin')
+            
+            # Убеждаемся, что имя файла безопасно
+            filename = "".join(c for c in filename if c.isalnum() or c in "._-")
+            if not filename:
+                filename = f"downloaded_file_{hash(url) % 10000}.bin"
             
             file_path = os.path.join(output_dir, filename)
             
@@ -323,7 +415,9 @@ class URLFileProcessor:
             elif service == 'onedrive':
                 return self.cloud_handler.convert_onedrive_url(url)
             elif service == 'yandex_disk':
-                return self.cloud_handler.convert_yandex_disk_url(url)
+                # Для Яндекс.Диска используем API для получения прямой ссылки
+                direct_url = await self.cloud_handler.get_yandex_disk_download_url(self.session, url)
+                return direct_url if direct_url else url
             else:
                 return url
         except Exception as e:
@@ -332,22 +426,69 @@ class URLFileProcessor:
     
     def _extract_filename(self, response, url: str) -> str:
         """Извлекает имя файла из response или URL"""
+        return self._extract_filename_from_headers_and_url(response.headers, url)
+    
+    def _extract_filename_from_headers_and_url(self, headers, url: str) -> str:
+        """Извлекает имя файла из заголовков и URL"""
         # Проверяем заголовок Content-Disposition
-        content_disposition = response.headers.get('content-disposition', '')
+        content_disposition = headers.get('content-disposition', '')
         if content_disposition:
-            filename_match = re.search(r'filename[*]?=["\']?([^"\';\r\n]+)["\']?', content_disposition)
-            if filename_match:
-                return unquote(filename_match.group(1))
+            # Более точный парсинг Content-Disposition
+            patterns = [
+                r'filename\*=UTF-8\'\'([^;\r\n]+)',  # RFC 5987 encoded filename
+                r'filename="([^"]+)"',                # Quoted filename
+                r'filename=([^;\s]+)',                # Unquoted filename
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, content_disposition, re.IGNORECASE)
+                if match:
+                    filename = unquote(match.group(1))
+                    # Проверяем, что это не служебная информация
+                    if filename and len(filename) > 1 and filename not in ['UTF-8', 'utf-8', 'unknown']:
+                        # Если файл без расширения, пробуем определить по content-type
+                        if '.' not in filename:
+                            continue
+                        # Очищаем имя файла от проблемных символов
+                        filename = self._clean_filename(filename)
+                        return filename
         
         # Извлекаем из URL
         parsed = urlparse(url)
         path = unquote(parsed.path)
         filename = Path(path).name
         
-        if filename and '.' in filename:
+        if filename and '.' in filename and len(filename) > 1:
+            filename = self._clean_filename(filename)
             return filename
         
-        return ""
+        # Если ничего не найдено, генерируем имя на основе URL
+        if 'yandex' in url.lower():
+            return "yandex_disk_file.mp3"  # По умолчанию для Яндекс.Диска
+        
+        return "downloaded_file"
+    
+    def _clean_filename(self, filename: str) -> str:
+        """Очищает имя файла от проблемных символов"""
+        if not filename:
+            return "unknown_file"
+        
+        # Заменяем обратные слеши на обычные слеши или подчеркивания
+        filename = filename.replace('\\', '_')
+        
+        # Заменяем другие проблемные символы
+        problematic_chars = ['<', '>', ':', '"', '|', '?', '*']
+        for char in problematic_chars:
+            filename = filename.replace(char, '_')
+        
+        # Убираем множественные подчеркивания
+        while '__' in filename:
+            filename = filename.replace('__', '_')
+        
+        # Убираем подчеркивания в начале и конце
+        filename = filename.strip('_')
+        
+        return filename if filename else "cleaned_file"
     
     def _get_extension_from_mime(self, mime_type: str) -> str:
         """Получает расширение файла по MIME типу"""
