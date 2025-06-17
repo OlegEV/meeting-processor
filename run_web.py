@@ -9,7 +9,7 @@ import sys
 import uuid
 import threading
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -28,16 +28,18 @@ try:
     from meeting_processor import MeetingProcessor
     from config_loader import ConfigLoader
     from web_templates import WebTemplates
+    from auth import create_auth_system, require_auth, get_current_user_id, get_current_user, is_authenticated
+    from database import create_database_manager
 except ImportError as e:
     print(f"❌ Ошибка импорта модулей: {e}")
     sys.exit(1)
 
 # Настройка логирования
-def setup_logging(log_level: str = "INFO", log_file: str = "web_app.log"):
+def setup_logging(log_level: str = "DEBUG", log_file: str = "web_app.log"):
     """Настраивает систему логирования"""
     from logging.handlers import RotatingFileHandler
     
-    level = getattr(logging, log_level.upper(), logging.INFO)
+    level = getattr(logging, log_level.upper(), logging.DEBUG)
     
     # Создаем папку для логов
     os.makedirs("logs", exist_ok=True)
@@ -94,12 +96,17 @@ class WorkingMeetingWebApp:
         if not deepgram_valid or not claude_valid:
             raise Exception("❌ API ключи не настроены")
         
+        # Инициализируем систему аутентификации
+        self.token_validator, self.user_manager, self.auth_middleware, self.auth_teardown = create_auth_system(self.config)
+        
+        # Инициализируем базу данных
+        self.db_manager = create_database_manager(self.config)
+        
+        # Связываем user_manager с db_manager
+        self.user_manager.set_db_manager(self.db_manager)
+        
         # Настройки приложения
         self.setup_app_config()
-        
-        # Хранилище задач и защита от race conditions
-        self.processing_jobs = {}
-        self.jobs_lock = threading.Lock()
         
         # Пул потоков для обработки файлов
         self.executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="FileProcessor")
@@ -113,10 +120,13 @@ class WorkingMeetingWebApp:
         # Инициализируем шаблоны
         self.templates = WebTemplates()
         
+        # Настраиваем middleware
+        self.setup_middleware()
+        
         # Настраиваем маршруты
         self.setup_routes()
         
-        logger.info("🌐 Веб-приложение инициализировано")
+        logger.info("🌐 Веб-приложение инициализировано с аутентификацией и базой данных")
     
     def setup_app_config(self):
         """Настраивает конфигурацию Flask"""
@@ -146,6 +156,16 @@ class WorkingMeetingWebApp:
         logger.info(f"Максимальный размер файла: {max_size_mb} МБ")
         logger.info(f"Поддерживаемые форматы: {self.formats_display}")
     
+    def setup_middleware(self):
+        """Настраивает middleware для аутентификации"""
+        # Middleware для аутентификации
+        self.app.before_request(self.auth_middleware)
+        
+        # Teardown для очистки контекста
+        self.app.teardown_appcontext(self.auth_teardown)
+        
+        logger.info("Middleware аутентификации настроен")
+    
     def allowed_file(self, filename: str) -> bool:
         """Проверяет, разрешен ли файл для загрузки"""
         if '.' not in filename:
@@ -164,15 +184,88 @@ class WorkingMeetingWebApp:
         })
     
     def update_job_status(self, job_id: str, **kwargs):
-        """Безопасно обновляет статус задачи"""
-        with self.jobs_lock:
-            if job_id in self.processing_jobs:
-                self.processing_jobs[job_id].update(kwargs)
+        """Безопасно обновляет статус задачи в базе данных"""
+        self.update_job_in_db(job_id, kwargs)
     
     def get_job_status(self, job_id: str) -> Optional[Dict]:
-        """Безопасно получает статус задачи"""
-        with self.jobs_lock:
-            return self.processing_jobs.get(job_id, {}).copy() if job_id in self.processing_jobs else None
+        """Безопасно получает статус задачи из базы данных"""
+        try:
+            # Получаем текущего пользователя
+            user_id = get_current_user_id()
+            if not user_id:
+                logger.warning("Попытка получить статус задачи без аутентификации")
+                return None
+            
+            # Получаем задачу из базы данных с проверкой доступа
+            job_data = self.db_manager.get_job_by_id(job_id, user_id)
+            return job_data
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения статуса задачи {job_id}: {e}")
+            return None
+    
+    def create_job_in_db(self, job_data: Dict[str, Any]) -> bool:
+        """Создает задачу в базе данных"""
+        try:
+            user_id = get_current_user_id()
+            if not user_id:
+                logger.error("Попытка создать задачу без аутентификации")
+                return False
+            
+            # Добавляем user_id к данным задачи
+            job_data['user_id'] = user_id
+            
+            # Создаем задачу в базе данных
+            self.db_manager.create_job(job_data)
+            logger.info(f"Задача {job_data['job_id']} создана в базе данных для пользователя {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка создания задачи в базе данных: {e}")
+            return False
+    
+    def update_job_in_db(self, job_id: str, update_data: Dict[str, Any]) -> bool:
+        """Обновляет задачу в базе данных"""
+        try:
+            user_id = get_current_user_id()
+            if not user_id:
+                logger.error("Попытка обновить задачу без аутентификации")
+                return False
+            
+            # Обновляем задачу в базе данных с проверкой доступа
+            success = self.db_manager.update_job(job_id, update_data, user_id)
+            if success:
+                logger.debug(f"Задача {job_id} обновлена в базе данных")
+            return success
+            
+        except Exception as e:
+            logger.error(f"Ошибка обновления задачи {job_id}: {e}")
+            return False
+    
+    def get_user_output_dir(self, user_id: str) -> Path:
+        """Получает директорию для файлов пользователя"""
+        user_files_config = self.config.get('user_files', {})
+        base_path = user_files_config.get('base_path', 'web_output')
+        
+        if user_files_config.get('structure') == 'user_based':
+            return Path(base_path) / user_id
+        else:
+            return Path(base_path)
+    
+    def ensure_user_exists(self) -> Optional[Dict[str, Any]]:
+        """Обеспечивает существование пользователя в базе данных"""
+        try:
+            user_info = get_current_user()
+            if not user_info:
+                return None
+            
+            # Создаем или обновляем пользователя в базе данных
+            db_user = self.user_manager.ensure_user_exists(user_info)
+            return db_user
+            
+        except Exception as e:
+            logger.error(f"Ошибка при работе с пользователем: {e}")
+            return None
     
     def setup_routes(self):
         """Настраивает маршруты приложения"""
@@ -180,32 +273,71 @@ class WorkingMeetingWebApp:
         @self.app.route('/health')
         def health_check():
             """Health check для мониторинга"""
-            return jsonify({
-                'status': 'healthy',
-                'timestamp': datetime.utcnow().isoformat(),
-                'version': '1.0.0',
-                'active_jobs': len([j for j in self.processing_jobs.values() 
-                                  if j['status'] in ['uploaded', 'processing']])
-            })        
+            try:
+                # Проверяем состояние базы данных
+                db_info = self.db_manager.get_database_info()
+                
+                return jsonify({
+                    'status': 'healthy',
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'version': '1.0.0',
+                    'database': {
+                        'users_count': db_info.get('users_count', 0),
+                        'jobs_count': db_info.get('jobs_count', 0),
+                        'db_size_mb': db_info.get('db_size_mb', 0)
+                    },
+                    'auth': {
+                        'enabled': True,
+                        'token_header': self.config.get('auth', {}).get('token_header', 'X-Identity-Token')
+                    }
+                })
+            except Exception as e:
+                logger.error(f"Ошибка health check: {e}")
+                return jsonify({
+                    'status': 'unhealthy',
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'error': str(e)
+                }), 500
             
         @self.app.route('/')
+        @require_auth(redirect_on_failure=False)
         def index():
             """Главная страница"""
+            # Обеспечиваем существование пользователя в базе данных
+            user = self.ensure_user_exists()
+            if not user:
+                return jsonify({'error': 'User authentication failed'}), 401
+            
             templates = self.get_available_templates()
             max_size_mb = self.app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
+            
+            # Получаем информацию о пользователе для отображения
+            user_info = get_current_user()
+            user_name = self.user_manager.get_user_display_name(user_info) if user_info else "Unknown User"
             
             return render_template_string(
                 self.templates.get_index_template(),
                 templates=templates,
                 max_size_mb=max_size_mb,
                 accept_string=self.accept_string,
-                formats_display=self.formats_display
+                formats_display=self.formats_display,
+                user_name=user_name,
+                user_id=get_current_user_id()
             )
         
         @self.app.route('/upload', methods=['POST'])
+        @require_auth()
         def upload_file():
             """Обработка загрузки файла"""
             try:
+                # Обеспечиваем существование пользователя
+                user = self.ensure_user_exists()
+                if not user:
+                    flash('Ошибка аутентификации пользователя', 'error')
+                    return redirect(url_for('index'))
+                
+                user_id = get_current_user_id()
+                
                 if 'file' not in request.files:
                     flash('Файл не выбран', 'error')
                     return redirect(url_for('index'))
@@ -224,24 +356,30 @@ class WorkingMeetingWebApp:
                 # Создаем уникальный ID для задачи
                 job_id = str(uuid.uuid4())
                 
-                # Сохраняем файл
+                # Сохраняем файл в пользовательскую директорию
                 filename = secure_filename(file.filename)
-                file_path = self.upload_folder / f"{job_id}_{filename}"
+                user_upload_dir = self.upload_folder / user_id
+                user_upload_dir.mkdir(exist_ok=True)
+                file_path = user_upload_dir / f"{job_id}_{filename}"
                 file.save(str(file_path))
                 
-                logger.info(f"📁 Файл загружен: {filename} (ID: {job_id}, шаблон: {template_type})")
+                logger.info(f"📁 Файл загружен: {filename} (ID: {job_id}, пользователь: {user_id}, шаблон: {template_type})")
                 
-                # Создаем задачу
-                with self.jobs_lock:
-                    self.processing_jobs[job_id] = {
-                        'status': 'uploaded',
-                        'filename': filename,
-                        'template': template_type,
-                        'file_path': str(file_path),
-                        'created_at': datetime.now(),
-                        'progress': 0,
-                        'message': 'Файл загружен, ожидает обработки'
-                    }
+                # Создаем задачу в базе данных
+                job_data = {
+                    'job_id': job_id,
+                    'user_id': user_id,
+                    'filename': filename,
+                    'template': template_type,
+                    'status': 'uploaded',
+                    'progress': 0,
+                    'message': 'Файл загружен, ожидает обработки',
+                    'file_path': str(file_path)
+                }
+                
+                if not self.create_job_in_db(job_data):
+                    flash('Ошибка создания задачи', 'error')
+                    return redirect(url_for('index'))
                 
                 # Запускаем обработку в отдельном потоке
                 self.executor.submit(self.process_file_sync, job_id)
@@ -260,11 +398,12 @@ class WorkingMeetingWebApp:
                 return redirect(url_for('index'))
         
         @self.app.route('/status/<job_id>')
+        @require_auth()
         def status(job_id: str):
             """Страница статуса обработки"""
             job = self.get_job_status(job_id)
             if not job:
-                flash('Задача не найдена', 'error')
+                flash('Задача не найдена или у вас нет доступа к ней', 'error')
                 return redirect(url_for('index'))
             
             templates = self.get_available_templates()
@@ -277,11 +416,12 @@ class WorkingMeetingWebApp:
             )
         
         @self.app.route('/api/status/<job_id>')
+        @require_auth(redirect_on_failure=False)
         def api_status(job_id: str):
             """API для получения статуса задачи"""
             job = self.get_job_status(job_id)
             if not job:
-                return jsonify({'error': 'Job not found'}), 404
+                return jsonify({'error': 'Job not found or access denied'}), 404
             
             return jsonify({
                 'status': job['status'],
@@ -292,11 +432,12 @@ class WorkingMeetingWebApp:
             })
         
         @self.app.route('/download/<job_id>/<file_type>')
+        @require_auth()
         def download_file(job_id: str, file_type: str):
             """Скачивание результирующих файлов"""
             job = self.get_job_status(job_id)
             if not job:
-                flash('Задача не найдена', 'error')
+                flash('Задача не найдена или у вас нет доступа к ней', 'error')
                 return redirect(url_for('index'))
             
             if job['status'] != 'completed':
@@ -326,11 +467,12 @@ class WorkingMeetingWebApp:
                 return redirect(url_for('status', job_id=job_id))
         
         @self.app.route('/view/<job_id>/<file_type>')
+        @require_auth()
         def view_file(job_id: str, file_type: str):
             """Просмотр файлов в веб-интерфейсе"""
             job = self.get_job_status(job_id)
             if not job:
-                flash('Задача не найдена', 'error')
+                flash('Задача не найдена или у вас нет доступа к ней', 'error')
                 return redirect(url_for('index'))
             
             if job['status'] != 'completed':
@@ -424,22 +566,44 @@ class WorkingMeetingWebApp:
                 return redirect(url_for('status', job_id=job_id))
         
         @self.app.route('/jobs')
+        @require_auth()
         def jobs_list():
-            """Список всех задач"""
-            jobs = []
-            with self.jobs_lock:
-                for job_id, job_data in self.processing_jobs.items():
+            """Список задач пользователя"""
+            try:
+                user_id = get_current_user_id()
+                if not user_id:
+                    flash('Ошибка аутентификации', 'error')
+                    return redirect(url_for('index'))
+                
+                # Получаем задачи пользователя из базы данных
+                user_jobs = self.db_manager.get_user_jobs(user_id, limit=50)
+                
+                jobs = []
+                for job_data in user_jobs:
+                    created_at = job_data.get('created_at')
+                    if isinstance(created_at, str):
+                        try:
+                            created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        except:
+                            created_at = datetime.utcnow()
+                    elif not isinstance(created_at, datetime):
+                        created_at = datetime.utcnow()
+                    
                     jobs.append({
-                        'id': job_id,
+                        'id': job_data['job_id'],
                         'filename': job_data['filename'],
                         'status': job_data['status'],
                         'template': job_data['template'],
-                        'created_at': job_data['created_at'].strftime('%Y-%m-%d %H:%M:%S'),
-                        'progress': job_data['progress']
+                        'created_at': created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                        'progress': job_data.get('progress', 0)
                     })
-            
-            jobs.sort(key=lambda x: x['created_at'], reverse=True)
-            return render_template_string(self.templates.get_jobs_template(), jobs=jobs)
+                
+                return render_template_string(self.templates.get_jobs_template(), jobs=jobs)
+                
+            except Exception as e:
+                logger.error(f"Ошибка получения списка задач: {e}")
+                flash('Ошибка получения списка задач', 'error')
+                return redirect(url_for('index'))
         
         @self.app.route('/docs')
         def docs_index():
@@ -494,19 +658,44 @@ class WorkingMeetingWebApp:
     
     def process_file_sync(self, job_id: str):
         """Синхронная обработка файла в отдельном потоке"""
-        job = self.get_job_status(job_id)
+        # Получаем задачу из базы данных
+        job = None
+        try:
+            # Получаем задачу без проверки пользователя (для фонового процесса)
+            with self.db_manager._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,))
+                row = cursor.fetchone()
+                if row:
+                    job = dict(row)
+        except Exception as e:
+            logger.error(f"Ошибка получения задачи {job_id}: {e}")
+            return
+        
         if not job:
+            logger.error(f"Задача {job_id} не найдена")
             return
         
         def progress_callback(progress: int, message: str):
             """Callback для обновления прогресса"""
-            self.update_job_status(job_id, progress=progress, message=message)
+            try:
+                with self.db_manager._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "UPDATE jobs SET progress = ?, message = ? WHERE job_id = ?",
+                        (progress, message, job_id)
+                    )
+                    conn.commit()
+            except Exception as e:
+                logger.error(f"Ошибка обновления прогресса для {job_id}: {e}")
         
         try:
-            logger.info(f"🔄 Начало обработки файла {job_id}: {job['filename']}")
+            logger.info(f"🔄 Начало обработки файла {job_id}: {job['filename']} для пользователя {job['user_id']}")
             
-            output_dir = self.output_folder / job_id
-            output_dir.mkdir(exist_ok=True)
+            # Создаем пользовательскую директорию для вывода
+            user_output_dir = self.get_user_output_dir(job['user_id'])
+            output_dir = user_output_dir / job_id
+            output_dir.mkdir(parents=True, exist_ok=True)
             
             processor = MeetingProcessor(
                 deepgram_api_key=self.deepgram_key,
@@ -538,13 +727,20 @@ class WorkingMeetingWebApp:
                 summary_file = output_dir / f"{input_name}_summary.md"
                 
                 if transcript_file.exists() and summary_file.exists():
-                    self.update_job_status(job_id,
-                                         status='completed',
-                                         progress=100,
-                                         message='Обработка завершена успешно!',
-                                         transcript_file=str(transcript_file),
-                                         summary_file=str(summary_file),
-                                         completed_at=datetime.now())
+                    # Обновляем задачу в базе данных
+                    with self.db_manager._get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE jobs SET
+                                status = 'completed',
+                                progress = 100,
+                                message = 'Обработка завершена успешно!',
+                                transcript_file = ?,
+                                summary_file = ?,
+                                completed_at = CURRENT_TIMESTAMP
+                            WHERE job_id = ?
+                        """, (str(transcript_file), str(summary_file), job_id))
+                        conn.commit()
                     
                     logger.info(f"✅ Обработка файла {job_id} завершена успешно")
                 else:
@@ -559,13 +755,20 @@ class WorkingMeetingWebApp:
                         transcript_file = transcript_files[0]
                         summary_file = summary_files[0]
                         
-                        self.update_job_status(job_id,
-                                             status='completed',
-                                             progress=100,
-                                             message='Обработка завершена успешно!',
-                                             transcript_file=str(transcript_file),
-                                             summary_file=str(summary_file),
-                                             completed_at=datetime.now())
+                        # Обновляем задачу в базе данных
+                        with self.db_manager._get_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                UPDATE jobs SET
+                                    status = 'completed',
+                                    progress = 100,
+                                    message = 'Обработка завершена успешно!',
+                                    transcript_file = ?,
+                                    summary_file = ?,
+                                    completed_at = CURRENT_TIMESTAMP
+                                WHERE job_id = ?
+                            """, (str(transcript_file), str(summary_file), job_id))
+                            conn.commit()
                         
                         logger.info(f"✅ Обработка файла {job_id} завершена успешно")
                         return
@@ -576,17 +779,28 @@ class WorkingMeetingWebApp:
                 
         except Exception as e:
             logger.error(f"❌ Ошибка обработки файла {job_id}: {e}")
-            self.update_job_status(job_id,
-                                 status='error',
-                                 progress=0,
-                                 message=f'Ошибка обработки: {str(e)}',
-                                 error=str(e))
+            # Обновляем статус ошибки в базе данных
+            try:
+                with self.db_manager._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE jobs SET
+                            status = 'error',
+                            progress = 0,
+                            message = ?,
+                            error = ?
+                        WHERE job_id = ?
+                    """, (f'Ошибка обработки: {str(e)}', str(e), job_id))
+                    conn.commit()
+            except Exception as db_error:
+                logger.error(f"Ошибка обновления статуса ошибки в БД: {db_error}")
         
         finally:
             # Очищаем исходный файл
             try:
-                if os.path.exists(job['file_path']):
+                if job and job.get('file_path') and os.path.exists(job['file_path']):
                     os.remove(job['file_path'])
+                    logger.debug(f"Удален временный файл: {job['file_path']}")
             except Exception as e:
                 logger.warning(f"Не удалось удалить временный файл: {e}")
     
