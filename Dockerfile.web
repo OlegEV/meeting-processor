@@ -29,6 +29,10 @@ COPY requirements.txt ./
 COPY wsgi.py ./
 COPY gunicorn.conf.py ./
 
+# Копируем модули аутентификации и базы данных
+COPY auth/ ./auth/
+COPY database/ ./database/
+
 # Копируем файлы документации
 COPY meeting_recording_guidelines.md ./
 COPY quick_meeting_checklist.md ./

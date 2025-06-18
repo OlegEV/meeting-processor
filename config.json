@@ -8,6 +8,28 @@
     "team_config": "team_config.json"
    },
 
+  "auth": {
+    "token_header": "X-Identity-Token",
+    "jwt_algorithm": "RS256",
+    "token_validation": {
+      "verify_signature": false,
+      "verify_exp": true,
+      "verify_aud": false
+    }
+  },
+
+  "database": {
+    "type": "sqlite",
+    "path": "meeting_processor.db",
+    "backup_enabled": true,
+    "backup_interval_hours": 24
+  },
+
+  "user_files": {
+    "base_path": "web_output",
+    "structure": "user_based"
+  },
+
   "settings": {
     "keep_audio_file": false,
     "language": "ru",

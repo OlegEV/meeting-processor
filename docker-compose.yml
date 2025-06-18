@@ -11,6 +11,7 @@ services:
       - ./logs:/app/logs
       - ./web_uploads:/app/web_uploads
       - ./web_output:/app/web_output
+      - ./meeting_processor.db:/app/meeting_processor.db
       - ./config.json:/app/config.json:ro
       - ./api_keys.json:/app/api_keys.json:ro
       - ./templates_config.json:/app/templates_config.json:ro
@@ -19,6 +20,7 @@ services:
       - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
       - CLAUDE_API_KEY=${CLAUDE_API_KEY}
       - FLASK_ENV=production
+      - AUTH_TOKEN_HEADER=X-Identity-Token
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
