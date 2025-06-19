@@ -23,7 +23,8 @@ class WebTemplates:
             <span class="navbar-brand"><i class="fas fa-microphone me-2"></i>Meeting Processor</span>
             <div class="navbar-nav d-flex flex-row">
                 <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
-                <a class="nav-link" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
     </nav>
@@ -201,8 +202,9 @@ class WebTemplates:
     <nav class="navbar navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
-            <div class="navbar-nav">
-                <a class="nav-link" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+            <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
     </nav>
@@ -388,8 +390,9 @@ class WebTemplates:
     <nav class="navbar navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
-            <div class="navbar-nav">
-                <a class="nav-link" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+            <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
     </nav>
@@ -448,8 +451,9 @@ class WebTemplates:
     <nav class="navbar navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
-            <div class="navbar-nav">
-                <a class="nav-link" href="/"><i class="fas fa-upload me-1"></i>Загрузить файл</a>
+            <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/"><i class="fas fa-upload me-1"></i>Загрузить файл</a>
+                <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
     </nav>
@@ -523,6 +527,296 @@ class WebTemplates:
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+        '''
+    
+    def get_statistics_template(self):
+        """Возвращает HTML шаблон страницы статистики"""
+        return '''
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Статистика использования</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
+            <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
+                <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Заголовок и фильтры -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                        <h4><i class="fas fa-chart-bar me-2"></i>Статистика использования приложения</h4>
+                        <div class="btn-group" role="group">
+                            <a href="/statistics?days=7" class="btn btn-outline-light btn-sm {% if days_back == 7 %}active{% endif %}">7 дней</a>
+                            <a href="/statistics?days=30" class="btn btn-outline-light btn-sm {% if days_back == 30 %}active{% endif %}">30 дней</a>
+                            <a href="/statistics?days=90" class="btn btn-outline-light btn-sm {% if days_back == 90 %}active{% endif %}">90 дней</a>
+                            <a href="/statistics?days=365" class="btn btn-outline-light btn-sm {% if days_back == 365 %}active{% endif %}">1 год</a>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-0">
+                            <i class="fas fa-calendar me-1"></i>Период: последние {{ days_back }} дней
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Общая статистика -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-primary text-white h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-file-alt fa-3x mb-3"></i>
+                        <h3>{{ stats.overall.total_protocols }}</h3>
+                        <p class="mb-0">Всего протоколов</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-check-circle fa-3x mb-3"></i>
+                        <h3>{{ stats.overall.completed_protocols }}</h3>
+                        <p class="mb-0">Успешно обработано</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-users fa-3x mb-3"></i>
+                        <h3>{{ stats.overall.unique_users }}</h3>
+                        <p class="mb-0">Активных пользователей</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-warning text-white h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-exclamation-triangle fa-3x mb-3"></i>
+                        <h3>{{ stats.overall.failed_protocols }}</h3>
+                        <p class="mb-0">Ошибок обработки</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- График активности по дням -->
+        {% if stats.daily %}
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header bg-secondary text-white">
+                        <h5><i class="fas fa-chart-line me-2"></i>Активность по дням</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="dailyChart" height="100"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="row">
+            <!-- Статистика по пользователям -->
+            <div class="col-md-6 mb-4">
+                <div class="card shadow h-100">
+                    <div class="card-header bg-primary text-white">
+                        <h5><i class="fas fa-users me-2"></i>Статистика по пользователям</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if stats.users %}
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Пользователь</th>
+                                            <th>Протоколов</th>
+                                            <th>Успешно</th>
+                                            <th>Последняя активность</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for user in stats.users %}
+                                        <tr>
+                                            <td>
+                                                <div>
+                                                    <strong>{{ user.name or user.user_id }}</strong>
+                                                    {% if user.email %}
+                                                    <br><small class="text-muted">{{ user.email }}</small>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                            <td><span class="badge bg-primary">{{ user.protocols_count }}</span></td>
+                                            <td><span class="badge bg-success">{{ user.completed_count }}</span></td>
+                                            <td><small>{{ user.last_activity[:10] if user.last_activity else 'N/A' }}</small></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center text-muted py-3">
+                                <i class="fas fa-inbox fa-2x mb-2"></i>
+                                <p>Нет данных за выбранный период</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Статистика по шаблонам -->
+            <div class="col-md-6 mb-4">
+                <div class="card shadow h-100">
+                    <div class="card-header bg-success text-white">
+                        <h5><i class="fas fa-file-alt me-2"></i>Популярность шаблонов</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if stats.templates %}
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Шаблон</th>
+                                            <th>Использований</th>
+                                            <th>Успешно</th>
+                                            <th>%</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for template in stats.templates %}
+                                        <tr>
+                                            <td><strong>{{ template.template.title() }}</strong></td>
+                                            <td><span class="badge bg-info">{{ template.usage_count }}</span></td>
+                                            <td><span class="badge bg-success">{{ template.completed_count }}</span></td>
+                                            <td>
+                                                {% set success_rate = (template.completed_count / template.usage_count * 100) if template.usage_count > 0 else 0 %}
+                                                <small>{{ "%.1f"|format(success_rate) }}%</small>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center text-muted py-3">
+                                <i class="fas fa-inbox fa-2x mb-2"></i>
+                                <p>Нет данных за выбранный период</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Детальная статистика по дням -->
+        {% if stats.daily %}
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header bg-dark text-white">
+                        <h5><i class="fas fa-calendar-alt me-2"></i>Детальная статистика по дням</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Дата</th>
+                                        <th>Протоколов создано</th>
+                                        <th>Успешно обработано</th>
+                                        <th>Активных пользователей</th>
+                                        <th>Процент успеха</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for day in stats.daily %}
+                                    <tr>
+                                        <td><strong>{{ day.date }}</strong></td>
+                                        <td><span class="badge bg-primary">{{ day.protocols_count }}</span></td>
+                                        <td><span class="badge bg-success">{{ day.completed_count }}</span></td>
+                                        <td><span class="badge bg-info">{{ day.users_count }}</span></td>
+                                        <td>
+                                            {% set success_rate = (day.completed_count / day.protocols_count * 100) if day.protocols_count > 0 else 0 %}
+                                            <div class="progress" style="height: 20px;">
+                                                <div class="progress-bar bg-success" style="width: {{ success_rate }}%">
+                                                    {{ "%.1f"|format(success_rate) }}%
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    {% if stats.daily %}
+    <script>
+        // График активности по дням
+        const dailyData = {{ stats.daily | tojson }};
+        
+        const ctx = document.getElementById('dailyChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dailyData.map(d => d.date).reverse(),
+                datasets: [{
+                    label: 'Протоколов создано',
+                    data: dailyData.map(d => d.protocols_count).reverse(),
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    tension: 0.1
+                }, {
+                    label: 'Успешно обработано',
+                    data: dailyData.map(d => d.completed_count).reverse(),
+                    borderColor: 'rgb(54, 162, 235)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Активность по дням'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    </script>
+    {% endif %}
 </body>
 </html>
         '''

@@ -605,6 +605,32 @@ class WorkingMeetingWebApp:
                 flash('Ошибка получения списка задач', 'error')
                 return redirect(url_for('index'))
         
+        @self.app.route('/statistics')
+        @require_auth()
+        def statistics():
+            """Страница статистики использования приложения"""
+            try:
+                # Получаем параметр периода (по умолчанию 30 дней)
+                days_back = request.args.get('days', 30, type=int)
+                if days_back < 1:
+                    days_back = 30
+                elif days_back > 365:
+                    days_back = 365
+                
+                # Получаем статистику из базы данных
+                stats = self.db_manager.get_usage_statistics(days_back)
+                
+                return render_template_string(
+                    self.templates.get_statistics_template(),
+                    stats=stats,
+                    days_back=days_back
+                )
+                
+            except Exception as e:
+                logger.error(f"Ошибка получения статистики: {e}")
+                flash('Ошибка получения статистики', 'error')
+                return redirect(url_for('index'))
+        
         @self.app.route('/docs')
         def docs_index():
             """Главная страница документации"""
@@ -886,6 +912,7 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="IP адрес для запуска сервера")
     parser.add_argument("--port", type=int, default=5000, help="Порт для запуска сервера")
     parser.add_argument("--debug", action="store_true", help="Запуск в режиме отладки")
+    parser.add_argument("--debug-auth", action="store_true", help="Отключить проверку токенов аутентификации (только для разработки)")
     
     args = parser.parse_args()
     
@@ -894,6 +921,34 @@ def main():
         os.makedirs("logs", exist_ok=True)
         os.makedirs("web_uploads", exist_ok=True)
         os.makedirs("web_output", exist_ok=True)
+        
+        # Проверяем отладочный режим аутентификации
+        from config_loader import ConfigLoader
+        config = ConfigLoader.load_config(args.config)
+        debug_mode_enabled = False
+        
+        if config and config.get('auth', {}).get('debug_mode', False):
+            debug_mode_enabled = True
+            print("🔧 ВНИМАНИЕ: Отладочный режим аутентификации включен в конфигурации!")
+            print("   Проверка токенов отключена. Используйте только для разработки!")
+        
+        # Обрабатываем флаг отладочного режима аутентификации
+        if args.debug_auth:
+            debug_mode_enabled = True
+            print("🔧 ВНИМАНИЕ: Отладочный режим аутентификации включен флагом --debug-auth!")
+            print("   Проверка токенов отключена. Используйте только для разработки!")
+            
+            # Загружаем конфигурацию и принудительно включаем отладочный режим
+            if config:
+                config.setdefault('auth', {})['debug_mode'] = True
+                # Сохраняем временно измененную конфигурацию
+                import tempfile
+                import json
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+                    json.dump(config, f, indent=2, ensure_ascii=False)
+                    temp_config_path = f.name
+                args.config = temp_config_path
+                print(f"🔧 Создан временный файл конфигурации: {temp_config_path}")
         
         # Создаем веб-приложение
         web_app = WorkingMeetingWebApp(args.config)
@@ -909,6 +964,14 @@ def main():
         print("📊 Логи: logs/web_app.log")
         print("🧵 Многопоточная обработка: ✅")
         print("🔄 Автоочистка файлов: ✅")
+        
+        # Показываем статус аутентификации
+        if args.debug_auth:
+            print("🔧 Отладочный режим аутентификации: ✅ (ТОЛЬКО ДЛЯ РАЗРАБОТКИ)")
+            print("📊 Статистика доступна: http://localhost:{}/statistics".format(args.port))
+        else:
+            print("🔐 Аутентификация: ✅ (требуется X-Identity-Token)")
+        
         print("\n💡 Для остановки нажмите Ctrl+C")
         print("="*60)
         

@@ -72,11 +72,11 @@ def create_auth_system(config):
     token_validator = create_token_validator(config)
     user_manager = create_user_manager()
     
-    # Инициализируем глобальные декораторы
-    init_auth_decorators(token_validator)
+    # Инициализируем глобальные декораторы с конфигурацией
+    init_auth_decorators(token_validator, config)
     
-    # Создаем middleware и teardown
-    auth_middleware = create_auth_middleware(token_validator)
+    # Создаем middleware и teardown с конфигурацией
+    auth_middleware = create_auth_middleware(token_validator, config)
     auth_teardown = create_auth_teardown()
     
     return token_validator, user_manager, auth_middleware, auth_teardown

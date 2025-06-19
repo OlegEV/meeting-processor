@@ -11,6 +11,12 @@
   "auth": {
     "token_header": "X-Identity-Token",
     "jwt_algorithm": "RS256",
+    "debug_mode": false,
+    "debug_user": {
+      "user_id": "debug_user",
+      "email": "debug@localhost",
+      "name": "Debug User"
+    },
     "token_validation": {
       "verify_signature": false,
       "verify_exp": true,

@@ -16,14 +16,28 @@ logger = logging.getLogger(__name__)
 class AuthDecorators:
     """Класс с декораторами для аутентификации"""
     
-    def __init__(self, token_validator: TokenValidator):
+    def __init__(self, token_validator: TokenValidator, config: Optional[Dict[str, Any]] = None):
         """
         Инициализация декораторов
         
         Args:
             token_validator: Валидатор токенов
+            config: Конфигурация приложения
         """
         self.token_validator = token_validator
+        self.config = config or {}
+        
+        # Настройки отладочного режима
+        auth_config = self.config.get('auth', {})
+        self.debug_mode = auth_config.get('debug_mode', False)
+        self.debug_user = auth_config.get('debug_user', {
+            'user_id': 'debug_user',
+            'email': 'debug@localhost',
+            'name': 'Debug User'
+        })
+        
+        if self.debug_mode:
+            logger.warning("🔧 ОТЛАДОЧНЫЙ РЕЖИМ АКТИВЕН - аутентификация отключена!")
     
     def require_auth(self, redirect_on_failure: bool = True):
         """
@@ -39,7 +53,20 @@ class AuthDecorators:
             @wraps(f)
             def decorated_function(*args, **kwargs):
                 try:
-                    # Валидируем токен из запроса
+                    # Проверяем отладочный режим
+                    if self.debug_mode:
+                        # В отладочном режиме используем фиктивного пользователя
+                        UserContext.set_current_user(self.debug_user)
+                        logger.debug(f"🔧 Отладочный режим: установлен контекст для пользователя {self.debug_user['user_id']}")
+                        
+                        try:
+                            # Вызываем оригинальную функцию
+                            return f(*args, **kwargs)
+                        finally:
+                            # Очищаем контекст после выполнения
+                            UserContext.clear_current_user()
+                    
+                    # Обычный режим - валидируем токен из запроса
                     is_valid, user_info, error = self.token_validator.validate_request()
                     
                     if not is_valid:
@@ -118,7 +145,20 @@ class AuthDecorators:
             @wraps(f)
             def decorated_function(*args, **kwargs):
                 try:
-                    # Пытаемся валидировать токен
+                    # Проверяем отладочный режим
+                    if self.debug_mode:
+                        # В отладочном режиме используем фиктивного пользователя
+                        UserContext.set_current_user(self.debug_user)
+                        logger.debug(f"🔧 Отладочный режим: установлен опциональный контекст для пользователя {self.debug_user['user_id']}")
+                        
+                        try:
+                            # Вызываем оригинальную функцию
+                            return f(*args, **kwargs)
+                        finally:
+                            # Очищаем контекст после выполнения
+                            UserContext.clear_current_user()
+                    
+                    # Обычный режим - пытаемся валидировать токен
                     is_valid, user_info, error = self.token_validator.validate_request()
                     
                     if is_valid and user_info:
@@ -150,15 +190,16 @@ class AuthDecorators:
 # Глобальные декораторы для удобства использования
 _auth_decorators: Optional[AuthDecorators] = None
 
-def init_auth_decorators(token_validator: TokenValidator) -> None:
+def init_auth_decorators(token_validator: TokenValidator, config: Optional[Dict[str, Any]] = None) -> None:
     """
     Инициализирует глобальные декораторы аутентификации
     
     Args:
         token_validator: Валидатор токенов
+        config: Конфигурация приложения
     """
     global _auth_decorators
-    _auth_decorators = AuthDecorators(token_validator)
+    _auth_decorators = AuthDecorators(token_validator, config)
 
 def require_auth(redirect_on_failure: bool = True):
     """
@@ -212,22 +253,39 @@ def optional_auth():
     return _auth_decorators.optional_auth()
 
 # Middleware функция для Flask
-def create_auth_middleware(token_validator: TokenValidator):
+def create_auth_middleware(token_validator: TokenValidator, config: Optional[Dict[str, Any]] = None):
     """
     Создает middleware функцию для автоматической аутентификации
     
     Args:
         token_validator: Валидатор токенов
+        config: Конфигурация приложения
         
     Returns:
         Middleware функция для Flask
     """
+    config = config or {}
+    auth_config = config.get('auth', {})
+    debug_mode = auth_config.get('debug_mode', False)
+    debug_user = auth_config.get('debug_user', {
+        'user_id': 'debug_user',
+        'email': 'debug@localhost',
+        'name': 'Debug User'
+    })
+    
     def auth_middleware():
         """Middleware для автоматической аутентификации на всех запросах"""
         # Пропускаем статические файлы и health check
-        if (request.endpoint == 'static' or 
+        if (request.endpoint == 'static' or
             request.path.startswith('/static/') or
             request.path == '/health'):
+            return
+        
+        # Проверяем отладочный режим
+        logger.debug(f"🔧 Middleware: debug_mode={debug_mode}, path={request.path}")
+        if debug_mode:
+            UserContext.set_current_user(debug_user)
+            logger.info(f"🔧 Middleware: отладочный режим активен, установлен контекст для пользователя {debug_user['user_id']}")
             return
         
         # Пытаемся аутентифицировать пользователя

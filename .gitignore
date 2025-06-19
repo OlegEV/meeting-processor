@@ -204,3 +204,4 @@ temp_*
 logs
 output
 meeting_output 
+meeting_processor.db
