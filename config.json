@@ -43,7 +43,7 @@
     "claude_model": "claude-sonnet-4-20250514",
     "deepgram_timeout_seconds": 300,
     "chunk_duration_minutes": 15,
-    "max_file_size_mb": 25,
+    "max_file_size_mb": 200,
     "max_duration_minutes": 15,
     "request_pause_seconds": 5,
     "max_retries": 3,

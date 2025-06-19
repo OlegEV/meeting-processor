@@ -209,9 +209,13 @@ class MeetingProcessor:
             # Транскрибируем аудио
             self._update_progress(25, "Транскрибирование аудио...")
             transcript = self.transcription_service.transcribe_audio(audio_file_for_deepgram, self.chunk_duration_minutes)
-            if not transcript:
+            if transcript is None:
                 self._update_progress(0, "Ошибка транскрибирования аудио")
                 return False
+            elif transcript == "":
+                self._update_progress(30, "Файл содержит тишину или неразборчивую речь")
+                # Создаем минимальный транскрипт для продолжения обработки
+                transcript = "Файл содержит тишину или неразборчивую речь. Транскрипт пуст."
             
             # Генерируем протокол встречи СНАЧАЛА
             self._update_progress(50, "Генерация первичного протокола...")
@@ -451,9 +455,13 @@ class MeetingProcessor:
             # Транскрибируем аудио
             self._update_progress(50, "Транскрибирование аудио...")
             transcript = self.transcription_service.transcribe_audio(audio_file_for_deepgram, self.chunk_duration_minutes)
-            if not transcript:
+            if transcript is None:
                 self._update_progress(0, "Ошибка транскрибирования аудио")
                 return False
+            elif transcript == "":
+                self._update_progress(60, "Файл содержит тишину или неразборчивую речь")
+                # Создаем минимальный транскрипт для сохранения
+                transcript = "Файл содержит тишину или неразборчивую речь. Транскрипт пуст."
             
             # Сохраняем транскрипт
             self._update_progress(90, "Сохранение транскрипта...")

@@ -84,21 +84,41 @@ class TranscriptionService:
                     has_words = hasattr(transcript_data, 'words') and transcript_data.words
                     has_paragraphs = hasattr(transcript_data, 'paragraphs') and transcript_data.paragraphs
                     
+                    # Если есть транскрипт, но он пустой или содержит только пробелы
+                    if has_transcript and not transcript_data.transcript.strip():
+                        print("📊 Структура ответа Deepgram:")
+                        print("   Найдено спикеров: 0")
+                        print("   Статус: Файл содержит тишину или неразборчивую речь")
+                        return ""  # Возвращаем пустую строку вместо None
+                    
                     if has_words:
                         words_with_speakers = [w for w in transcript_data.words if hasattr(w, 'speaker')]
                         
                         if words_with_speakers:
                             unique_speakers = set(getattr(w, 'speaker') for w in words_with_speakers)
+                            print("📊 Структура ответа Deepgram:")
+                            print(f"   Найдено спикеров: {len(unique_speakers)}")
+                        else:
+                            print("📊 Структура ответа Deepgram:")
+                            print("   Найдено спикеров: 0")
                     
                     # Возвращаем отформатированный транскрипт
                     if has_words and self.options.get("diarize", True):
                         return self._format_transcript_with_speakers(transcript_data)
                     elif has_paragraphs and self.options.get("paragraphs", True):
                         return self._format_transcript_with_paragraphs(transcript_data)
-                    else:
+                    elif has_transcript:
                         return transcript_data.transcript
+                    else:
+                        print("📊 Структура ответа Deepgram:")
+                        print("   Найдено спикеров: 0")
+                        print("   Статус: Нет распознанного текста")
+                        return ""  # Возвращаем пустую строку вместо None
             
-            return "Ошибка: неожиданная структура ответа"
+            print("📊 Структура ответа Deepgram:")
+            print("   Найдено спикеров: 0")
+            print("   Статус: Неожиданная структура ответа")
+            return ""  # Возвращаем пустую строку вместо None
         
         # Retry логика при таймаутах
         for attempt in range(1, self.max_retries + 1):
@@ -118,11 +138,17 @@ class TranscriptionService:
                         result = future.result(timeout=timeout)
                         if attempt > 1:
                             print(f"✅ Запрос успешен с попытки {attempt}")
+                        
+                        # Проверяем результат
+                        if result is not None:
+                            if result == "":
+                                print("ℹ️ Файл содержит тишину или неразборчивую речь")
+                                return ""  # Возвращаем пустую строку как валидный результат
+                            else:
+                                return result
                         else:
-                            print(f"📊 Структура ответа Deepgram:")
-                            channels = result.count("Спикер") if "Спикер" in result else 0
-                            print(f"   Найдено спикеров: {channels}")
-                        return result
+                            print("❌ Получен None результат")
+                            return None
                     except FutureTimeoutError:
                         print(f"⏰ Таймаут {timeout} секунд превышен (попытка {attempt}/{self.max_retries})")
                         future.cancel()
@@ -312,8 +338,11 @@ class TranscriptionService:
             
             transcript = self.transcribe_audio_with_timeout(buffer_data)
             
-            if transcript:
-                print("✅ Транскрипция завершена")
+            if transcript is not None:
+                if transcript == "":
+                    print("ℹ️ Транскрипция завершена: файл содержит тишину")
+                else:
+                    print("✅ Транскрипция завершена")
                 return transcript
             else:
                 print("❌ Не удалось транскрибировать файл")

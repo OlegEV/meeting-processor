@@ -382,7 +382,9 @@ class WorkingMeetingWebApp:
                     return redirect(url_for('index'))
                 
                 # Запускаем обработку в отдельном потоке
-                self.executor.submit(self.process_file_sync, job_id)
+                logger.info(f"🚀 Запуск обработки файла {job_id} в отдельном потоке")
+                future = self.executor.submit(self.process_file_sync, job_id)
+                logger.info(f"🚀 Задача {job_id} отправлена в ThreadPoolExecutor: {future}")
                 
                 session['current_job_id'] = job_id
                 flash(f'Файл "{filename}" успешно загружен и поставлен в очередь на обработку', 'success')
@@ -515,6 +517,7 @@ class WorkingMeetingWebApp:
                 return redirect(url_for('status', job_id=job_id))
         
         @self.app.route('/generate_protocol/<job_id>', methods=['POST'])
+        @require_auth()
         def generate_protocol(job_id: str):
             """Генерация протокола в новом шаблоне из готового транскрипта"""
             job = self.get_job_status(job_id)
@@ -540,19 +543,23 @@ class WorkingMeetingWebApp:
             try:
                 # Создаем новый ID для задачи генерации протокола
                 protocol_job_id = f"{job_id}_protocol_{new_template}"
+                user_id = get_current_user_id()
                 
-                # Создаем задачу генерации протокола
-                with self.jobs_lock:
-                    self.processing_jobs[protocol_job_id] = {
-                        'status': 'processing',
-                        'filename': f"{job['filename']} (протокол {new_template})",
-                        'template': new_template,
-                        'original_job_id': job_id,
-                        'transcript_file': transcript_file,
-                        'created_at': datetime.now(),
-                        'progress': 0,
-                        'message': f'Генерация протокола в шаблоне "{new_template}"...'
-                    }
+                # Создаем задачу генерации протокола в базе данных
+                protocol_job_data = {
+                    'job_id': protocol_job_id,
+                    'user_id': user_id,
+                    'filename': f"{job['filename']} (протокол {new_template})",
+                    'template': new_template,
+                    'status': 'processing',
+                    'progress': 0,
+                    'message': f'Генерация протокола в шаблоне "{new_template}"...',
+                    'transcript_file': transcript_file
+                }
+                
+                if not self.create_job_in_db(protocol_job_data):
+                    flash('Ошибка создания задачи генерации протокола', 'error')
+                    return redirect(url_for('status', job_id=job_id))
                 
                 # Запускаем генерацию протокола в отдельном потоке
                 self.executor.submit(self.generate_protocol_sync, protocol_job_id, transcript_file, new_template)
@@ -684,9 +691,12 @@ class WorkingMeetingWebApp:
     
     def process_file_sync(self, job_id: str):
         """Синхронная обработка файла в отдельном потоке"""
+        logger.info(f"🔄 process_file_sync запущена для задачи {job_id}")
+        
         # Получаем задачу из базы данных
         job = None
         try:
+            logger.debug(f"🔍 Получение задачи {job_id} из базы данных")
             # Получаем задачу без проверки пользователя (для фонового процесса)
             with self.db_manager._get_connection() as conn:
                 cursor = conn.cursor()
@@ -694,12 +704,15 @@ class WorkingMeetingWebApp:
                 row = cursor.fetchone()
                 if row:
                     job = dict(row)
+                    logger.info(f"✅ Задача {job_id} найдена в базе данных: {job['filename']}")
+                else:
+                    logger.error(f"❌ Задача {job_id} не найдена в базе данных")
         except Exception as e:
-            logger.error(f"Ошибка получения задачи {job_id}: {e}")
+            logger.error(f"❌ Ошибка получения задачи {job_id}: {e}")
             return
         
         if not job:
-            logger.error(f"Задача {job_id} не найдена")
+            logger.error(f"❌ Задача {job_id} не найдена")
             return
         
         def progress_callback(progress: int, message: str):
