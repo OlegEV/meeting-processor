@@ -36,6 +36,25 @@ class AudioProcessor:
         file_path = Path(file_path)
         extension = file_path.suffix.lower()
         
+        # Проверяем, есть ли расширение
+        if not extension:
+            # Пытаемся определить расширение из имени файла
+            filename = file_path.name.lower()
+            print(f"⚠️ Файл без расширения: {file_path}")
+            print(f"   Полное имя файла: '{filename}'")
+            
+            # Ищем известные расширения в конце имени файла
+            all_extensions = self.native_audio_formats | self.convert_audio_formats | self.video_formats
+            for ext in all_extensions:
+                ext_without_dot = ext.lstrip('.')
+                if filename.endswith(ext_without_dot):
+                    extension = ext
+                    print(f"   Найдено расширение в имени файла: '{extension}'")
+                    break
+            
+            if not extension:
+                return "unsupported", "", f"Не удалось определить расширение файла: {file_path.name}"
+        
         # Определяем тип файла
         if extension in self.native_audio_formats:
             file_type = "native_audio"
@@ -44,6 +63,7 @@ class AudioProcessor:
         elif extension in self.video_formats:
             file_type = "video"
         else:
+            print(f"⚠️ Неподдерживаемое расширение: '{extension}' для файла: {file_path}")
             return "unsupported", extension, "Неподдерживаемый формат"
         
         # Получаем информацию о длительности

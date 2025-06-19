@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Веб-фреймворк
 try:
     from flask import Flask, request, render_template_string, jsonify, send_file, redirect, url_for, flash, session
-    from werkzeug.utils import secure_filename
+    from werkzeug.utils import secure_filename as werkzeug_secure_filename
     from werkzeug.exceptions import RequestEntityTooLarge
 except ImportError:
     print("❌ Установите Flask: pip install Flask")
@@ -73,6 +73,39 @@ def setup_logging(log_level: str = "DEBUG", log_file: str = "web_app.log"):
     return app_logger
 
 logger = setup_logging()
+
+def secure_filename_unicode(filename: str) -> str:
+    """
+    Безопасная обработка имени файла с поддержкой русских символов
+    Сохраняет расширение файла и заменяет только опасные символы
+    """
+    if not filename:
+        return filename
+    
+    # Разделяем имя файла и расширение
+    name_part, ext_part = os.path.splitext(filename)
+    
+    # Список опасных символов для замены
+    dangerous_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0']
+    
+    # Заменяем опасные символы на подчеркивания
+    safe_name = name_part
+    for char in dangerous_chars:
+        safe_name = safe_name.replace(char, '_')
+    
+    # Убираем множественные подчеркивания и пробелы в начале/конце
+    safe_name = '_'.join(safe_name.split())
+    safe_name = safe_name.strip('._')
+    
+    # Если имя стало пустым, используем fallback
+    if not safe_name:
+        safe_name = 'file'
+    
+    # Возвращаем безопасное имя с оригинальным расширением
+    result = safe_name + ext_part.lower()
+    
+    logger.debug(f"Filename sanitization: '{filename}' -> '{result}'")
+    return result
 
 class WorkingMeetingWebApp:
     """Рабочая версия веб-приложения для обработки встреч"""
@@ -168,10 +201,23 @@ class WorkingMeetingWebApp:
     
     def allowed_file(self, filename: str) -> bool:
         """Проверяет, разрешен ли файл для загрузки"""
-        if '.' not in filename:
+        if not filename or '.' not in filename:
+            logger.warning(f"Файл без расширения: '{filename}'")
             return False
-        file_ext = filename.rsplit('.', 1)[1].lower()
-        return file_ext in self.allowed_extensions
+        
+        try:
+            file_ext = filename.rsplit('.', 1)[1].lower()
+            is_allowed = file_ext in self.allowed_extensions
+            
+            if not is_allowed:
+                logger.warning(f"Неподдерживаемое расширение: '{file_ext}' в файле '{filename}'")
+            else:
+                logger.debug(f"Файл разрешен: '{filename}' (расширение: '{file_ext}')")
+            
+            return is_allowed
+        except Exception as e:
+            logger.error(f"Ошибка проверки расширения файла '{filename}': {e}")
+            return False
     
     def get_available_templates(self) -> Dict[str, str]:
         """Возвращает доступные шаблоны"""
@@ -345,6 +391,8 @@ class WorkingMeetingWebApp:
                 file = request.files['file']
                 template_type = request.form.get('template', 'standard')
                 
+                logger.info(f"📤 Получен файл для загрузки: '{file.filename}' (пользователь: {user_id})")
+                
                 if file.filename == '':
                     flash('Файл не выбран', 'error')
                     return redirect(url_for('index'))
@@ -357,10 +405,17 @@ class WorkingMeetingWebApp:
                 job_id = str(uuid.uuid4())
                 
                 # Сохраняем файл в пользовательскую директорию
-                filename = secure_filename(file.filename)
+                original_filename = file.filename
+                filename = secure_filename_unicode(file.filename)
                 user_upload_dir = self.upload_folder / user_id
                 user_upload_dir.mkdir(exist_ok=True)
                 file_path = user_upload_dir / f"{job_id}_{filename}"
+                
+                logger.info(f"📝 Обработка имени файла:")
+                logger.info(f"   Оригинальное имя: '{original_filename}'")
+                logger.info(f"   Безопасное имя: '{filename}'")
+                logger.info(f"   Полный путь: '{file_path}'")
+                
                 file.save(str(file_path))
                 
                 logger.info(f"📁 Файл загружен: {filename} (ID: {job_id}, пользователь: {user_id}, шаблон: {template_type})")
@@ -730,6 +785,14 @@ class WorkingMeetingWebApp:
         
         try:
             logger.info(f"🔄 Начало обработки файла {job_id}: {job['filename']} для пользователя {job['user_id']}")
+            
+            # Проверяем существование файла
+            input_file_path = job['file_path']
+            if not os.path.exists(input_file_path):
+                raise Exception(f"Файл не найден: {input_file_path}")
+            
+            logger.info(f"📂 Входной файл: {input_file_path}")
+            logger.info(f"📊 Размер файла: {os.path.getsize(input_file_path)} байт")
             
             # Создаем пользовательскую директорию для вывода
             user_output_dir = self.get_user_output_dir(job['user_id'])
