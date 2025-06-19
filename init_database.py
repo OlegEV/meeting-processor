@@ -199,6 +199,88 @@ def check_database_status(config_file: str = "config.json"):
         print(f"❌ Ошибка проверки базы данных: {e}")
         return False
 
+def clear_tables(config_file: str = "config.json"):
+    """Очищает таблицы с данными (пользователи и задачи)"""
+    
+    print("🗑️  Очистка таблиц базы данных")
+    print("=" * 40)
+    
+    try:
+        # Загружаем конфигурацию
+        print("📋 Загрузка конфигурации...")
+        config = ConfigLoader.load_config(config_file)
+        if not config:
+            raise Exception(f"Не удалось загрузить конфигурацию из {config_file}")
+        
+        print(f"✅ Конфигурация загружена из {config_file}")
+        
+        # Создаем менеджер базы данных
+        print("🔧 Подключение к базе данных...")
+        db_manager = create_database_manager(config)
+        
+        # Получаем информацию о базе данных до очистки
+        db_info_before = db_manager.get_database_info()
+        print(f"\n📊 Состояние до очистки:")
+        print(f"   Пользователей: {db_info_before['users_count']}")
+        print(f"   Задач: {db_info_before['jobs_count']}")
+        
+        # Подтверждение от пользователя
+        print(f"\n⚠️  ВНИМАНИЕ: Будут удалены ВСЕ данные из таблиц!")
+        print(f"   • Все пользователи ({db_info_before['users_count']} записей)")
+        print(f"   • Все задачи ({db_info_before['jobs_count']} записей)")
+        
+        confirmation = input("\nВы уверены? Введите 'YES' для подтверждения: ")
+        if confirmation != 'YES':
+            print("❌ Операция отменена пользователем")
+            return False
+        
+        # Очищаем таблицы
+        print("\n🗑️  Очистка таблиц...")
+        
+        with db_manager._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Отключаем проверку внешних ключей для корректного удаления
+            cursor.execute("PRAGMA foreign_keys = OFF")
+            
+            # Очищаем таблицы в правильном порядке (сначала зависимые)
+            tables_to_clear = ['jobs', 'users']
+            
+            for table in tables_to_clear:
+                cursor.execute(f"DELETE FROM {table}")
+                deleted_count = cursor.rowcount
+                print(f"   ✅ Таблица '{table}': удалено {deleted_count} записей")
+            
+            # Сбрасываем счетчики автоинкремента (если таблица существует)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'")
+            if cursor.fetchone():
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('jobs', 'users')")
+                print(f"   ✅ Сброшены счетчики автоинкремента")
+            
+            # Включаем обратно проверку внешних ключей
+            cursor.execute("PRAGMA foreign_keys = ON")
+            
+            conn.commit()
+        
+        # Получаем информацию о базе данных после очистки
+        db_info_after = db_manager.get_database_info()
+        print(f"\n📊 Состояние после очистки:")
+        print(f"   Пользователей: {db_info_after['users_count']}")
+        print(f"   Задач: {db_info_after['jobs_count']}")
+        
+        print("\n🎉 Очистка таблиц завершена успешно!")
+        print("\n💡 Следующие шаги:")
+        print("   1. Для создания тестовых данных: python init_database.py init")
+        print("   2. Для проверки статуса: python init_database.py status")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Ошибка очистки таблиц: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def main():
     """Основная функция"""
     import argparse
@@ -217,6 +299,9 @@ def main():
     # Команда проверки статуса
     status_parser = subparsers.add_parser('status', help='Проверка статуса базы данных')
     
+    # Команда очистки таблиц
+    clear_parser = subparsers.add_parser('clear', help='Очистка таблиц с данными')
+    
     args = parser.parse_args()
     
     if args.command == 'init':
@@ -227,6 +312,9 @@ def main():
         sys.exit(0 if backup_path else 1)
     elif args.command == 'status':
         success = check_database_status(args.config)
+        sys.exit(0 if success else 1)
+    elif args.command == 'clear':
+        success = clear_tables(args.config)
         sys.exit(0 if success else 1)
     else:
         # По умолчанию выполняем инициализацию
