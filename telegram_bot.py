@@ -217,12 +217,6 @@ class MeetingBot:
                 self._save_config(config)
                 print(f"📁 Создан файл конфигурации {self.config_file}")
             
-            # Проверяем переменную окружения для токена
-            bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-            if bot_token:
-                config["telegram"]["bot_token"] = bot_token
-                print("🔑 Использован токен бота из переменной окружения")
-            
             return config
             
         except Exception as e:
@@ -241,7 +235,6 @@ class MeetingBot:
         """Создает конфигурацию по умолчанию"""
         return {
             "telegram": {
-                "bot_token": "",
                 "allowed_users": [],
                 "admin_users": [],
                 "max_file_size_mb": 100
@@ -286,19 +279,31 @@ class MeetingBot:
                     file_keys = json.load(f)
                     api_keys = file_keys.get("api_keys", {})
         except Exception as e:
-            self.logger.warning(f"Не удалось загрузить api_keys.json: {e}")
+            if hasattr(self, 'logger'):
+                self.logger.warning(f"Не удалось загрузить api_keys.json: {e}")
         
-        # Переопределяем из переменных окружения
+        # Переопределяем из переменных окружения только если ключи отсутствуют в файле
         env_deepgram = os.getenv('DEEPGRAM_API_KEY')
         env_claude = os.getenv('CLAUDE_API_KEY')
+        env_telegram = os.getenv('TELEGRAM_BOT_TOKEN')
         
-        if env_deepgram:
+        if env_deepgram and not api_keys.get('deepgram'):
             api_keys['deepgram'] = env_deepgram
-            self.logger.info("🔑 Использован Deepgram API ключ из переменной окружения")
+            if hasattr(self, 'logger'):
+                self.logger.info("🔑 Использован Deepgram API ключ из переменной окружения")
         
-        if env_claude:
+        if env_claude and not api_keys.get('claude'):
             api_keys['claude'] = env_claude
-            self.logger.info("🔑 Использован Claude API ключ из переменной окружения")
+            if hasattr(self, 'logger'):
+                self.logger.info("🔑 Использован Claude API ключ из переменной окружения")
+        
+        if env_telegram and not api_keys.get('telegram_bot_token'):
+            api_keys['telegram_bot_token'] = env_telegram
+            if hasattr(self, 'logger'):
+                self.logger.info("🔑 Использован Telegram Bot токен из переменной окружения")
+        elif api_keys.get('telegram_bot_token'):
+            if hasattr(self, 'logger'):
+                self.logger.info("🔑 Использован Telegram Bot токен из файла")
         
         return {"api_keys": api_keys}
     
@@ -1005,6 +1010,10 @@ class MeetingBot:
         if self.url_processor:
             url_info = "\n🔗 Поддержка HTTP ссылок и облачных сервисов"
         
+        admin_info = ""
+        if self.is_admin(user_id):
+            admin_info = "\n🔧 /admin - Панель администратора"
+        
         welcome_text = f"""
 🎙️ **Добро пожаловать в Meeting Bot!**
 
@@ -1019,9 +1028,9 @@ class MeetingBot:
 /templates - Выбрать шаблон протокола
 /settings - Настройки обработки
 /status - Статус текущих задач
-/url <ссылка> - Обработать файл по ссылке
-/check <ссылка> - Проверить файл без обработки
-/formats - Поддерживаемые форматы
+/url \\<ссылка\\> - Обработать файл по ссылке
+/check \\<ссылка\\> - Проверить файл без обработки
+/formats - Поддерживаемые форматы{admin_info}
 
 **Способы загрузки:**
 1️⃣ Прикрепите файл к сообщению (до 20 МБ)
@@ -1040,6 +1049,7 @@ class MeetingBot:
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /help"""
+        user_id = update.effective_user.id
         max_size = self.config.get("telegram", {}).get("max_file_size_mb", 100)
         max_url_size = self.config.get("url_processing", {}).get("max_file_size_mb", 500)
         timeout = self.config.get("processing", {}).get("processing_timeout", 1800)
@@ -1048,13 +1058,28 @@ class MeetingBot:
         if self.url_processor:
             url_commands = """
 **Команды для работы с URL:**
-/url <ссылка> - Обработать файл по ссылке
-/check <ссылка> - Проверить файл без обработки
+/url \\<ссылка\\> - Обработать файл по ссылке
+/check \\<ссылка\\> - Проверить файл без обработки
 /formats - Поддерживаемые форматы ссылок
 
 **Поддерживаемые сервисы:**
 ☁️ Google Drive, Яндекс.Диск
 🔗 Любые прямые HTTP ссылки
+"""
+        
+        admin_commands = ""
+        if self.is_admin(user_id):
+            admin_commands = """
+**Команды администратора:**
+/admin - Панель администратора
+/add_user \\<id\\> - Добавить пользователя
+/remove_user \\<id\\> - Удалить пользователя
+/list_users - Список пользователей
+/add_admin \\<id\\> - Добавить администратора
+/remove_admin \\<id\\> - Удалить администратора
+/list_admins - Список администраторов
+/user_info \\<id\\> - Информация о пользователе
+/bot_stats - Статистика бота
 """
         
         help_text = f"""
@@ -1066,7 +1091,7 @@ class MeetingBot:
 /templates - Выбрать шаблон протокола
 /settings - Настройки обработки
 /status - Статус обработки файлов
-/cancel - Отменить текущую обработку{url_commands}
+/cancel - Отменить текущую обработку{url_commands}{admin_commands}
 
 **Как использовать:**
 1️⃣ Выберите шаблон командой /templates
@@ -1409,6 +1434,408 @@ class MeetingBot:
                 "ℹ️ Нет активных задач для отмены"
             )
     
+    async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /admin - панель администратора"""
+        user_id = update.effective_user.id
+        
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+        
+        admin_text = """
+🔧 **Панель администратора**
+
+**Управление пользователями:**
+/add\\_user <user\\_id> - Добавить пользователя
+/remove\\_user <user\\_id> - Удалить пользователя
+/list\\_users - Список разрешенных пользователей
+/add\\_admin <user\\_id> - Добавить администратора
+/remove\\_admin <user\\_id> - Удалить администратора
+/list\\_admins - Список администраторов
+
+**Информация:**
+/user\\_info <user\\_id> - Информация о пользователе
+/bot\\_stats - Статистика бота
+
+**Примеры:**
+`/add_user 123456789`
+`/remove_user 123456789`
+`/user_info 123456789`
+        """
+        
+        await update.message.reply_text(admin_text, parse_mode=ParseMode.MARKDOWN)
+    
+    async def add_user_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /add_user <user_id> - добавить пользователя"""
+        user_id = update.effective_user.id
+        
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+        
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Укажите ID пользователя\n\n"
+                "Использование: `/add_user 123456789`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат ID пользователя")
+            return
+        
+        allowed_users = self.config.get("telegram", {}).get("allowed_users", [])
+        
+        if target_user_id in allowed_users:
+            await update.message.reply_text(f"ℹ️ Пользователь {target_user_id} уже имеет доступ")
+            return
+        
+        # Добавляем пользователя
+        allowed_users.append(target_user_id)
+        self.config["telegram"]["allowed_users"] = allowed_users
+        self._save_config(self.config)
+        
+        self.logger.info(f"👤 Администратор {user_id} добавил пользователя {target_user_id}")
+        
+        await update.message.reply_text(
+            f"✅ Пользователь `{target_user_id}` добавлен в список разрешенных\n\n"
+            f"Всего пользователей: {len(allowed_users)}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    async def remove_user_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /remove_user <user_id> - удалить пользователя"""
+        user_id = update.effective_user.id
+        
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+        
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Укажите ID пользователя\n\n"
+                "Использование: `/remove_user 123456789`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат ID пользователя")
+            return
+        
+        allowed_users = self.config.get("telegram", {}).get("allowed_users", [])
+        admin_users = self.config.get("telegram", {}).get("admin_users", [])
+        
+        if target_user_id not in allowed_users:
+            await update.message.reply_text(f"ℹ️ Пользователь {target_user_id} не найден в списке разрешенных")
+            return
+        
+        # Проверяем, не является ли пользователь администратором
+        if target_user_id in admin_users:
+            await update.message.reply_text(
+                f"❌ Нельзя удалить администратора {target_user_id}\n"
+                f"Сначала удалите его из администраторов командой `/remove_admin {target_user_id}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # Удаляем пользователя
+        allowed_users.remove(target_user_id)
+        self.config["telegram"]["allowed_users"] = allowed_users
+        self._save_config(self.config)
+        
+        # Останавливаем активную сессию пользователя, если есть
+        if target_user_id in self.user_sessions:
+            self.user_sessions[target_user_id].stop_processing()
+            del self.user_sessions[target_user_id]
+        
+        self.logger.info(f"👤 Администратор {user_id} удалил пользователя {target_user_id}")
+        
+        await update.message.reply_text(
+            f"✅ Пользователь `{target_user_id}` удален из списка разрешенных\n\n"
+            f"Всего пользователей: {len(allowed_users)}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    async def list_users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /list_users - список разрешенных пользователей"""
+        user_id = update.effective_user.id
+        
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+        
+        allowed_users = self.config.get("telegram", {}).get("allowed_users", [])
+        admin_users = self.config.get("telegram", {}).get("admin_users", [])
+        
+        if not allowed_users:
+            await update.message.reply_text("ℹ️ Список разрешенных пользователей пуст")
+            return
+        
+        users_text = "👥 **Разрешенные пользователи:**\n\n"
+        
+        for i, uid in enumerate(allowed_users, 1):
+            status = "👑 Администратор" if uid in admin_users else "👤 Пользователь"
+            # Пользователь активен если он в сессиях ИЛИ это текущий пользователь
+            active = "🟢 Активен" if (uid in self.user_sessions or uid == user_id) else "⚪ Неактивен"
+            users_text += f"{i}. `{uid}` - {status} ({active})\n"
+        
+        users_text += f"\n**Всего:** {len(allowed_users)} пользователей"
+        
+        await update.message.reply_text(users_text, parse_mode=ParseMode.MARKDOWN)
+    
+    async def add_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /add_admin <user_id> - добавить администратора"""
+        user_id = update.effective_user.id
+        
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+        
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Укажите ID пользователя\n\n"
+                "Использование: `/add_admin 123456789`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат ID пользователя")
+            return
+        
+        allowed_users = self.config.get("telegram", {}).get("allowed_users", [])
+        admin_users = self.config.get("telegram", {}).get("admin_users", [])
+        
+        # Проверяем, есть ли пользователь в разрешенных
+        if target_user_id not in allowed_users:
+            await update.message.reply_text(
+                f"❌ Пользователь {target_user_id} не найден в списке разрешенных\n"
+                f"Сначала добавьте его командой `/add_user {target_user_id}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        if target_user_id in admin_users:
+            await update.message.reply_text(f"ℹ️ Пользователь {target_user_id} уже является администратором")
+            return
+        
+        # Добавляем администратора
+        admin_users.append(target_user_id)
+        self.config["telegram"]["admin_users"] = admin_users
+        self._save_config(self.config)
+        
+        self.logger.info(f"👑 Администратор {user_id} добавил администратора {target_user_id}")
+        
+        await update.message.reply_text(
+            f"✅ Пользователь `{target_user_id}` назначен администратором\n\n"
+            f"Всего администраторов: {len(admin_users)}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    async def remove_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /remove_admin <user_id> - удалить администратора"""
+        user_id = update.effective_user.id
+        
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+        
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Укажите ID пользователя\n\n"
+                "Использование: `/remove_admin 123456789`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат ID пользователя")
+            return
+        
+        admin_users = self.config.get("telegram", {}).get("admin_users", [])
+        
+        if target_user_id not in admin_users:
+            await update.message.reply_text(f"ℹ️ Пользователь {target_user_id} не является администратором")
+            return
+        
+        # Проверяем, не удаляет ли администратор сам себя
+        if target_user_id == user_id:
+            await update.message.reply_text("❌ Нельзя удалить самого себя из администраторов")
+            return
+        
+        # Проверяем, не остается ли система без администраторов
+        if len(admin_users) <= 1:
+            await update.message.reply_text("❌ Нельзя удалить последнего администратора")
+            return
+        
+        # Удаляем администратора
+        admin_users.remove(target_user_id)
+        self.config["telegram"]["admin_users"] = admin_users
+        self._save_config(self.config)
+        
+        self.logger.info(f"👑 Администратор {user_id} удалил администратора {target_user_id}")
+        
+        await update.message.reply_text(
+            f"✅ Пользователь `{target_user_id}` больше не является администратором\n\n"
+            f"Всего администраторов: {len(admin_users)}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    async def list_admins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /list_admins - список администраторов"""
+        user_id = update.effective_user.id
+        
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+        
+        admin_users = self.config.get("telegram", {}).get("admin_users", [])
+        
+        if not admin_users:
+            await update.message.reply_text("ℹ️ Список администраторов пуст")
+            return
+        
+        admins_text = "👑 **Администраторы:**\n\n"
+        
+        for i, uid in enumerate(admin_users, 1):
+            # Пользователь активен если он в сессиях ИЛИ это текущий пользователь
+            active = "🟢 Активен" if (uid in self.user_sessions or uid == user_id) else "⚪ Неактивен"
+            current = " (вы)" if uid == user_id else ""
+            admins_text += f"{i}. `{uid}` - {active}{current}\n"
+        
+        admins_text += f"\n**Всего:** {len(admin_users)} администраторов"
+        
+        await update.message.reply_text(admins_text, parse_mode=ParseMode.MARKDOWN)
+    
+    async def user_info_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /user_info <user_id> - информация о пользователе"""
+        user_id = update.effective_user.id
+        
+        # Определяем функцию для отправки сообщений
+        if update.message:
+            reply_func = update.message.reply_text
+        elif update.callback_query:
+            reply_func = update.callback_query.message.reply_text
+        else:
+            # Используем effective_message как fallback
+            reply_func = update.effective_message.reply_text if update.effective_message else None
+            if not reply_func:
+                self.logger.error("❌ Не удалось определить способ отправки сообщения в user_info_command")
+                return
+        
+        if not self.is_admin(user_id):
+            await reply_func("❌ У вас нет прав администратора")
+            return
+        
+        if not context.args:
+            await reply_func(
+                "❌ Укажите ID пользователя\n\n"
+                "Использование: `/user_info 123456789`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await reply_func("❌ Неверный формат ID пользователя")
+            return
+        
+        allowed_users = self.config.get("telegram", {}).get("allowed_users", [])
+        admin_users = self.config.get("telegram", {}).get("admin_users", [])
+        
+        # Проверяем доступ
+        has_access = len(allowed_users) == 0 or target_user_id in allowed_users
+        is_admin = target_user_id in admin_users
+        
+        # Информация о сессии
+        session_info = "⚪ Неактивен"
+        if target_user_id in self.user_sessions:
+            session = self.user_sessions[target_user_id]
+            if session.processing:
+                duration = session.get_processing_duration()
+                session_info = f"🟡 Обрабатывает файл ({duration}с)" if duration else "🟡 Обрабатывает файл"
+            else:
+                session_info = "🟢 Активен"
+        elif target_user_id == user_id:
+            # Если это текущий пользователь, который выполняет команду, он активен
+            session_info = "🟢 Активен"
+        
+        # Статус доступа
+        if not has_access:
+            access_status = "❌ Нет доступа"
+        elif is_admin:
+            access_status = "👑 Администратор"
+        else:
+            access_status = "👤 Пользователь"
+        
+        info_text = f"""
+👤 **Информация о пользователе**
+
+🆔 ID: `{target_user_id}`
+🔐 Статус: {access_status}
+🔄 Активность: {session_info}
+        """
+        
+        if target_user_id in self.user_sessions:
+            session = self.user_sessions[target_user_id]
+            info_text += f"\n📝 Шаблон: `{session.template}`"
+            if session.current_file:
+                info_text += f"\n📁 Файл: `{session.current_file}`"
+                info_text += f"\n📊 Прогресс: {session.current_progress}%"
+        
+        await reply_func(info_text, parse_mode=ParseMode.MARKDOWN)
+    
+    async def bot_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /bot_stats - статистика бота"""
+        user_id = update.effective_user.id
+        
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+        
+        allowed_users = self.config.get("telegram", {}).get("allowed_users", [])
+        admin_users = self.config.get("telegram", {}).get("admin_users", [])
+        active_sessions = len([s for s in self.user_sessions.values() if s.processing])
+        uptime = datetime.now() - self.stats['start_time']
+        
+        stats_text = f"""
+📊 **Статистика бота**
+
+👥 **Пользователи:**
+• Всего разрешенных: {len(allowed_users)}
+• Администраторов: {len(admin_users)}
+• Активных сессий: {len(self.user_sessions)}
+• Обрабатывается файлов: {active_sessions}
+
+📈 **Обработка:**
+• Всего файлов: {self.stats['total_files_processed']}
+• Всего URL: {self.stats['total_urls_processed']}
+• Всего ошибок: {self.stats['total_errors']}
+
+⚙️ **Система:**
+• Время работы: {uptime.days}д {uptime.seconds//3600}ч {(uptime.seconds//60)%60}м
+• URL обработка: {'✅ Включена' if self.url_processor else '❌ Отключена'}
+• Уведомления: {'✅ Включены' if self.config.get('notifications', {}).get('send_progress_updates', True) else '❌ Отключены'}
+
+🔧 **Конфигурация:**
+• Макс. размер файла: {self.config.get('telegram', {}).get('max_file_size_mb', 20)} МБ
+• Макс. размер URL: {self.config.get('url_processing', {}).get('max_file_size_mb', 500)} МБ
+• Таймаут обработки: {self.config.get('processing', {}).get('processing_timeout', 1800)//60} мин
+        """
+        
+        await update.message.reply_text(stats_text, parse_mode=ParseMode.MARKDOWN)
+    
     # ==================== FILE HANDLERS ====================
     
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1583,7 +2010,7 @@ class MeetingBot:
         help_msg += "• /status - для просмотра прогресса\n"
         
         if self.url_processor:
-            help_msg += "• /url <ссылка> - для обработки файла по ссылке"
+            help_msg += "• /url \\<ссылка\\> - для обработки файла по ссылке"
         
         await update.message.reply_text(help_msg)
     
@@ -1700,11 +2127,12 @@ class MeetingBot:
     def run(self):
         """Запуск бота"""
         # Проверяем токен
-        bot_token = self.config.get("telegram", {}).get("bot_token", "")
+        bot_token = self.api_keys.get("api_keys", {}).get("telegram_bot_token", "")
+        
         if not bot_token or bot_token == "YOUR_BOT_TOKEN_HERE":
-            self.logger.error("❌ Токен бота не настроен в конфигурации")
+            self.logger.error("❌ Токен бота не настроен в api_keys.json")
             print("❌ Токен бота не настроен!")
-            print("Установите токен в bot_config.json или переменной окружения TELEGRAM_BOT_TOKEN")
+            print("Установите токен в api_keys.json или переменной окружения TELEGRAM_BOT_TOKEN")
             return
         
         # Проверяем API ключи
@@ -1725,7 +2153,18 @@ class MeetingBot:
         application.add_handler(CommandHandler("settings", self.settings_command))
         application.add_handler(CommandHandler("status", self.status_command))
         application.add_handler(CommandHandler("cancel", self.cancel_command))
-        
+
+        # Админские команды
+        application.add_handler(CommandHandler("admin", self.admin_command))
+        application.add_handler(CommandHandler("add_user", self.add_user_command))
+        application.add_handler(CommandHandler("remove_user", self.remove_user_command))
+        application.add_handler(CommandHandler("list_users", self.list_users_command))
+        application.add_handler(CommandHandler("add_admin", self.add_admin_command))
+        application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
+        application.add_handler(CommandHandler("list_admins", self.list_admins_command))
+        application.add_handler(CommandHandler("user_info", self.user_info_command))
+        application.add_handler(CommandHandler("bot_stats", self.bot_stats_command))
+
         # URL команды (если доступны)
         if self.url_processor:
             application.add_handler(CommandHandler("url", self.url_command))
