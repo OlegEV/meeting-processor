@@ -196,7 +196,6 @@ cython_debug/
 
 #localfiles
 api_keys.json 
-bot_config.json 
 team_config.json 
 web_output 
 web_uploads 

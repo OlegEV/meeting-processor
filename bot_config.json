@@ -1,0 +1,85 @@
+{
+  "telegram": {
+    "bot_token": "",
+    "allowed_users": [361351548, 249013209, 867708285, 146525398, 268562673, 501790607],
+    "admin_users": [361351548],
+    "max_file_size_mb": 20,
+    "webhook_url": null,
+    "webhook_port": 8443
+  },
+  "processing": {
+    "default_template": "standard",
+    "max_concurrent_jobs": 3,
+    "cleanup_temp_files": true,
+    "processing_timeout": 1800,
+    "auto_detect_template": false,
+    "deepgram_timeout": 600,
+    "chunk_duration_minutes": 20
+  },
+  "url_processing": {
+    "enabled": true,
+    "max_file_size_mb": 500,
+    "download_timeout_seconds": 1800,
+    "allowed_domains": [],
+    "blocked_domains": [
+      "localhost",
+      "127.0.0.1",
+      "0.0.0.0",
+      "192.168.",
+      "10.",
+      "172.16."
+    ],
+    "auto_detect_links": true,
+    "cloud_services": {
+      "google_drive": true,
+      "yandex_disk": true
+    },
+    "retry_attempts": 3,
+    "retry_delay_seconds": 5
+  },
+  "notifications": {
+    "send_progress_updates": true,
+    "notify_on_completion": true,
+    "notify_on_error": true,
+    "send_file_info": true,
+    "send_processing_stats": true,
+    "show_download_progress": true,
+    "progress_update_interval": 10
+  },
+  "security": {
+    "rate_limit_messages_per_minute": 10,
+    "rate_limit_files_per_hour": 5,
+    "rate_limit_urls_per_hour": 10,
+    "block_suspicious_files": true,
+    "log_user_activity": true,
+    "require_user_registration": false,
+    "max_file_name_length": 255,
+    "scan_urls_for_malware": false
+  },
+  "features": {
+    "allow_template_selection": true,
+    "allow_custom_templates": false,
+    "allow_settings_change": true,
+    "show_processing_time": true,
+    "show_file_statistics": true,
+    "enable_voice_messages": true,
+    "enable_video_messages": true,
+    "enable_url_processing": true,
+    "enable_cloud_services": true
+  },
+  "storage": {
+    "temp_dir": "temp_bot_files",
+    "keep_processed_files": false,
+    "max_storage_days": 1,
+    "cleanup_interval_hours": 6, 
+    "max_temp_files": 100,
+    "cleanup_on_startup": true
+  },
+  "logging": {
+    "log_level": "INFO",
+    "log_file": "telegram_bot.log",
+    "log_user_messages": false,
+    "log_file_processing": true,
+    "max_log_size_mb": 100
+  }
+}
