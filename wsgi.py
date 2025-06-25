@@ -72,7 +72,6 @@ def create_app():
         app = web_app.app
         app.config.update(
             SECRET_KEY=os.environ.get('SECRET_KEY', os.urandom(24)),
-            MAX_CONTENT_LENGTH=int(os.environ.get('MAX_UPLOAD_SIZE', 100 * 1024 * 1024)),
             UPLOAD_FOLDER=os.environ.get('UPLOAD_FOLDER', 'web_uploads'),
             OUTPUT_FOLDER=os.environ.get('OUTPUT_FOLDER', 'web_output'),
         )
