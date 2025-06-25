@@ -164,7 +164,7 @@ class WorkingMeetingWebApp:
     def setup_app_config(self):
         """Настраивает конфигурацию Flask"""
         # Максимальный размер файла
-        max_size_mb = self.config.get("settings", {}).get("max_file_size_mb", 100)
+        max_size_mb = self.config.get("settings", {}).get("max_file_size_mb", 200)
         self.app.config['MAX_CONTENT_LENGTH'] = max_size_mb * 1024 * 1024
         
         # Поддерживаемые форматы файлов
