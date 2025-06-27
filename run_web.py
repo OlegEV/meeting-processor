@@ -908,13 +908,39 @@ class WorkingMeetingWebApp:
     
     def generate_protocol_sync(self, job_id: str, transcript_file: str, template_type: str):
         """Синхронная генерация протокола из транскрипта в отдельном потоке"""
-        job = self.get_job_status(job_id)
-        if not job:
+        logger.info(f"🔄 generate_protocol_sync запущена для задачи {job_id}")
+        
+        # Получаем задачу из базы данных напрямую (без проверки аутентификации для фонового процесса)
+        job = None
+        try:
+            logger.debug(f"🔍 Получение задачи {job_id} из базы данных")
+            with self.db_manager._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,))
+                row = cursor.fetchone()
+                if row:
+                    job = dict(row)
+                    logger.info(f"✅ Задача {job_id} найдена в базе данных: {job['filename']}")
+                else:
+                    logger.error(f"❌ Задача {job_id} не найдена в базе данных")
+                    return
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения задачи {job_id}: {e}")
             return
         
         def progress_callback(progress: int, message: str):
             """Callback для обновления прогресса"""
-            self.update_job_status(job_id, progress=progress, message=message)
+            try:
+                with self.db_manager._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "UPDATE jobs SET progress = ?, message = ? WHERE job_id = ?",
+                        (progress, message, job_id)
+                    )
+                    conn.commit()
+                    logger.debug(f"📊 Прогресс обновлен для {job_id}: {progress}% - {message}")
+            except Exception as e:
+                logger.error(f"Ошибка обновления прогресса для {job_id}: {e}")
         
         try:
             # Создаем выходную директорию для нового протокола
@@ -922,6 +948,13 @@ class WorkingMeetingWebApp:
             output_dir.mkdir(exist_ok=True)
             
             # Создаем процессор только для генерации протокола
+            logger.info(f"🤖 Создание MeetingProcessor для генерации протокола")
+            logger.info(f"   Claude API ключ: {'✅ установлен' if self.claude_key else '❌ отсутствует'}")
+            logger.info(f"   Модель Claude: {self.processing_settings.get('claude_model', 'claude-sonnet-4-20250514')}")
+            logger.info(f"   Тип шаблона: {template_type}")
+            logger.info(f"   Файл транскрипта: {transcript_file}")
+            logger.info(f"   Выходная директория: {output_dir}")
+            
             processor = MeetingProcessor(
                 deepgram_api_key="dummy",  # Не нужен для генерации протокола
                 claude_api_key=self.claude_key,
@@ -932,12 +965,16 @@ class WorkingMeetingWebApp:
                 progress_callback=progress_callback
             )
             
+            logger.info(f"🚀 Запуск генерации протокола из транскрипта")
+            
             # Генерируем протокол из транскрипта
             success = processor.generate_protocol_from_transcript(
                 transcript_file_path=transcript_file,
                 output_dir=str(output_dir),
                 template_type=template_type
             )
+            
+            logger.info(f"📊 Результат генерации протокола: {'✅ успех' if success else '❌ ошибка'}")
             
             if success:
                 # Ищем сгенерированный протокол
@@ -947,15 +984,25 @@ class WorkingMeetingWebApp:
                 if summary_files:
                     summary_file = summary_files[0]
                     
-                    self.update_job_status(job_id,
-                                         status='completed',
-                                         progress=100,
-                                         message='Протокол успешно сгенерирован!',
-                                         transcript_file=transcript_file,  # Ссылка на исходный транскрипт
-                                         summary_file=str(summary_file),
-                                         completed_at=datetime.now())
-                    
-                    logger.info(f"✅ Генерация протокола {job_id} завершена успешно")
+                    # Обновляем задачу в базе данных напрямую
+                    try:
+                        with self.db_manager._get_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                UPDATE jobs SET
+                                    status = 'completed',
+                                    progress = 100,
+                                    message = 'Протокол успешно сгенерирован!',
+                                    transcript_file = ?,
+                                    summary_file = ?,
+                                    completed_at = CURRENT_TIMESTAMP
+                                WHERE job_id = ?
+                            """, (transcript_file, str(summary_file), job_id))
+                            conn.commit()
+                        
+                        logger.info(f"✅ Генерация протокола {job_id} завершена успешно")
+                    except Exception as db_error:
+                        logger.error(f"Ошибка обновления статуса завершения в БД: {db_error}")
                 else:
                     raise Exception(f"Файл протокола не найден. Есть: {[f.name for f in all_files]}")
             else:
@@ -963,11 +1010,21 @@ class WorkingMeetingWebApp:
                 
         except Exception as e:
             logger.error(f"❌ Ошибка генерации протокола {job_id}: {e}")
-            self.update_job_status(job_id,
-                                 status='error',
-                                 progress=0,
-                                 message=f'Ошибка генерации протокола: {str(e)}',
-                                 error=str(e))
+            # Обновляем статус ошибки в базе данных напрямую
+            try:
+                with self.db_manager._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE jobs SET
+                            status = 'error',
+                            progress = 0,
+                            message = ?,
+                            error = ?
+                        WHERE job_id = ?
+                    """, (f'Ошибка генерации протокола: {str(e)}', str(e), job_id))
+                    conn.commit()
+            except Exception as db_error:
+                logger.error(f"Ошибка обновления статуса ошибки в БД: {db_error}")
     
     def run(self, host: str = '127.0.0.1', port: int = 5000, debug: bool = False):
         """Запуск веб-приложения"""

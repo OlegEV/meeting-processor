@@ -21,15 +21,18 @@ class ProtocolGenerator:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
     
-    def generate_meeting_summary(self, 
-                               transcript: str, 
-                               file_datetime_info: Dict = None, 
+    def generate_meeting_summary(self,
+                               transcript: str,
+                               file_datetime_info: Dict = None,
                                template_type: str = "standard",
                                team_identification: Dict = None,
                                templates_system = None) -> Optional[str]:
         """Генерирует протокол встречи через Claude API"""
         try:
             print(f"🤖 Генерирую протокол встречи через Claude ({self.model})...")
+            print(f"   📊 Длина транскрипта: {len(transcript)} символов")
+            print(f"   📝 Тип шаблона: {template_type}")
+            print(f"   🔑 API ключ: {'✅ установлен' if self.client.api_key else '❌ отсутствует'}")
             
             # Подготавливаем промпт
             if templates_system:
@@ -54,12 +57,18 @@ class ProtocolGenerator:
             if templates_system and hasattr(templates_system, 'config'):
                 max_tokens = templates_system.config.get("template_settings", {}).get("max_tokens", 2000)
             
+            print(f"🚀 Отправляю запрос к Claude API...")
+            print(f"   📏 Длина промпта: {len(prompt)} символов")
+            print(f"   🎯 Максимум токенов: {max_tokens}")
+            
             # Отправляем запрос к Claude
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}]
             )
+            
+            print(f"✅ Получен ответ от Claude API")
             
             summary = response.content[0].text
             
