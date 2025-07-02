@@ -16,15 +16,48 @@ class AudioProcessor:
         self.native_audio_formats = {'.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg'}
         self.convert_audio_formats = {'.wma', '.opus'}
         self.video_formats = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.webm'}
+        
+        # Совместимость кодеков с контейнерами
+        self.codec_container_compatibility = {
+            '.ogg': {'vorbis', 'opus', 'flac'},
+            '.mp3': {'mp3'},
+            '.wav': {'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le', 'pcm_f64le'},
+            '.flac': {'flac'},
+            '.aac': {'aac'},
+            '.m4a': {'aac', 'alac'}
+        }
     
     def check_ffmpeg(self) -> bool:
         """Проверяет доступность ffmpeg"""
         try:
-            result = subprocess.run(['ffmpeg', '-version'], 
+            result = subprocess.run(['ffmpeg', '-version'],
                                   capture_output=True, text=True)
             return result.returncode == 0
         except FileNotFoundError:
             return False
+    
+    def _is_codec_compatible_with_container(self, codec_name: str, container_extension: str) -> bool:
+        """Проверяет совместимость кодека с контейнером"""
+        if container_extension not in self.codec_container_compatibility:
+            return False
+        
+        compatible_codecs = self.codec_container_compatibility[container_extension]
+        return codec_name.lower() in compatible_codecs
+    
+    def _get_best_container_for_codec(self, codec_name: str) -> Tuple[str, List[str]]:
+        """Возвращает лучший контейнер для данного кодека"""
+        if not codec_name:
+            return '.wav', ['-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2']
+        
+        codec_lower = codec_name.lower()
+        
+        # Ищем подходящий контейнер для кодека
+        for container, compatible_codecs in self.codec_container_compatibility.items():
+            if codec_lower in compatible_codecs:
+                return container, ['-c:a', 'copy']
+        
+        # Если не нашли подходящий контейнер, используем WAV
+        return '.wav', ['-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2']
     
     def get_audio_info(self, file_path: str) -> Tuple[str, str, str]:
         """
@@ -154,34 +187,86 @@ class AudioProcessor:
         try:
             print(f"✂️ Разбиваю аудиофайл на части по {chunk_duration_minutes} минут...")
             
+            # Проверяем доступность ffmpeg
+            if not self.check_ffmpeg():
+                print("❌ ffmpeg не найден! Установите ffmpeg для разбиения файлов.")
+                return []
+            
             audio_path_obj = Path(audio_path)
+            
+            # Проверяем существование файла
+            if not audio_path_obj.exists():
+                print(f"❌ Файл не найден: {audio_path}")
+                return []
+            
+            # Проверяем размер файла
+            file_size = audio_path_obj.stat().st_size
+            if file_size == 0:
+                print(f"❌ Файл пустой: {audio_path}")
+                return []
+            
+            print(f"📁 Исходный файл: {audio_path_obj.name} ({file_size / (1024*1024):.1f} MB)")
+            
             audio_dir = audio_path_obj.parent
             audio_name = audio_path_obj.stem
             original_extension = audio_path_obj.suffix.lower()
             chunk_duration_seconds = chunk_duration_minutes * 60
             
-            # Определяем, нужно ли конвертировать при разбивке
-            keep_original_format = original_extension in self.native_audio_formats
+            # Получаем информацию о кодеке файла
+            cmd_probe = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', str(audio_path)]
+            result_probe = subprocess.run(cmd_probe, capture_output=True, text=True)
             
-            if keep_original_format:
+            codec_name = None
+            if result_probe.returncode == 0:
+                try:
+                    streams_info = json.loads(result_probe.stdout)
+                    if 'streams' in streams_info and len(streams_info['streams']) > 0:
+                        codec_name = streams_info['streams'][0].get('codec_name', '')
+                        print(f"🔍 Обнаружен кодек: {codec_name}")
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            
+            # Определяем, можно ли сохранить оригинальный формат
+            can_keep_original = (
+                original_extension in self.native_audio_formats and
+                codec_name and
+                self._is_codec_compatible_with_container(codec_name, original_extension)
+            )
+            
+            if can_keep_original:
                 print(f"🎯 Сохраняю оригинальный формат {original_extension}")
                 output_extension = original_extension
                 audio_codec_params = ['-c:a', 'copy']
             else:
-                print(f"🔄 Конвертирую в WAV для совместимости")
-                output_extension = '.wav'
-                audio_codec_params = ['-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2']
+                # Выбираем подходящий контейнер для кодека
+                output_extension, audio_codec_params = self._get_best_container_for_codec(codec_name)
+                if original_extension in self.native_audio_formats:
+                    print(f"🔄 Кодек {codec_name} несовместим с контейнером {original_extension}")
+                    print(f"   Сохраняю в формате {output_extension} с копированием кодека")
+                else:
+                    print(f"🔄 Сохраняю в подходящем формате {output_extension}")
             
             # Получаем общую длительность
-            cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', audio_path]
+            print("🔍 Анализирую длительность файла...")
+            cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', str(audio_path)]
             result = subprocess.run(cmd, capture_output=True, text=True)
             
             if result.returncode != 0:
                 print("❌ Не удалось получить информацию о длительности")
+                print(f"   Команда: {' '.join(cmd)}")
+                print(f"   Код ошибки: {result.returncode}")
+                if result.stderr:
+                    print(f"   Ошибка ffprobe: {result.stderr.strip()}")
                 return []
             
-            info = json.loads(result.stdout)
-            total_duration = float(info['format']['duration'])
+            try:
+                info = json.loads(result.stdout)
+                total_duration = float(info['format']['duration'])
+                print(f"⏱️ Общая длительность: {total_duration/60:.1f} минут")
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                print(f"❌ Ошибка парсинга информации о файле: {e}")
+                print(f"   Вывод ffprobe: {result.stdout}")
+                return []
             
             num_chunks = int(total_duration // chunk_duration_seconds) + 1
             print(f"📊 Создаю {num_chunks} частей в формате {output_extension}...")
@@ -203,13 +288,21 @@ class AudioProcessor:
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 
                 if result.returncode == 0:
-                    if chunk_path.stat().st_size > 1000:  # Проверяем, что файл не пустой
+                    if chunk_path.exists() and chunk_path.stat().st_size > 1000:  # Проверяем, что файл не пустой
                         chunk_paths.append(str(chunk_path))
                         print(f"✅ Создана часть {i+1}: {chunk_path.name}")
                     else:
-                        chunk_path.unlink()  # Удаляем пустой файл
+                        if chunk_path.exists():
+                            chunk_path.unlink()  # Удаляем пустой файл
+                        print(f"⚠️ Часть {i+1} пуста или слишком мала")
                 else:
                     print(f"❌ Ошибка создания части {i+1}")
+                    print(f"   Команда: {' '.join(cmd)}")
+                    print(f"   Код ошибки: {result.returncode}")
+                    if result.stderr:
+                        print(f"   Ошибка ffmpeg: {result.stderr.strip()}")
+                    if result.stdout:
+                        print(f"   Вывод ffmpeg: {result.stdout.strip()}")
             
             return chunk_paths
             
