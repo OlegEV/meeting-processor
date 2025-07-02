@@ -57,7 +57,6 @@ class AuthDecorators:
                     if self.debug_mode:
                         # В отладочном режиме используем фиктивного пользователя
                         UserContext.set_current_user(self.debug_user)
-                        logger.debug(f"🔧 Отладочный режим: установлен контекст для пользователя {self.debug_user['user_id']}")
                         
                         try:
                             # Вызываем оригинальную функцию
@@ -149,7 +148,6 @@ class AuthDecorators:
                     if self.debug_mode:
                         # В отладочном режиме используем фиктивного пользователя
                         UserContext.set_current_user(self.debug_user)
-                        logger.debug(f"🔧 Отладочный режим: установлен опциональный контекст для пользователя {self.debug_user['user_id']}")
                         
                         try:
                             # Вызываем оригинальную функцию
@@ -164,12 +162,9 @@ class AuthDecorators:
                     if is_valid and user_info:
                         # Устанавливаем контекст пользователя если токен валиден
                         UserContext.set_current_user(user_info)
-                        logger.debug(f"Установлен опциональный контекст для пользователя: {user_info['user_id']}")
                     else:
                         # Очищаем контекст если токен невалиден
                         UserContext.clear_current_user()
-                        if error:
-                            logger.debug(f"Опциональная аутентификация не удалась: {error}")
                     
                     try:
                         # Вызываем оригинальную функцию
@@ -282,10 +277,8 @@ def create_auth_middleware(token_validator: TokenValidator, config: Optional[Dic
             return
         
         # Проверяем отладочный режим
-        logger.debug(f"🔧 Middleware: debug_mode={debug_mode}, path={request.path}")
         if debug_mode:
             UserContext.set_current_user(debug_user)
-            logger.info(f"🔧 Middleware: отладочный режим активен, установлен контекст для пользователя {debug_user['user_id']}")
             return
         
         # Пытаемся аутентифицировать пользователя
@@ -294,11 +287,8 @@ def create_auth_middleware(token_validator: TokenValidator, config: Optional[Dic
             
             if is_valid and user_info:
                 UserContext.set_current_user(user_info)
-                logger.debug(f"Middleware: установлен контекст для пользователя {user_info['user_id']}")
             else:
                 UserContext.clear_current_user()
-                if error:
-                    logger.debug(f"Middleware: аутентификация не удалась: {error}")
                     
         except Exception as e:
             logger.error(f"Ошибка в middleware аутентификации: {e}")

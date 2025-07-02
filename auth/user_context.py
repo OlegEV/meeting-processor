@@ -28,7 +28,6 @@ class UserContext:
             raise ValueError("user_info должен содержать user_id")
             
         _user_context.set(user_info)
-        logger.debug(f"Установлен контекст пользователя: {user_info['user_id']}")
     
     @staticmethod
     def get_current_user() -> Optional[Dict[str, Any]]:
@@ -84,7 +83,6 @@ class UserContext:
     def clear_current_user() -> None:
         """Очищает контекст текущего пользователя"""
         _user_context.set(None)
-        logger.debug("Контекст пользователя очищен")
     
     @staticmethod
     def is_authenticated() -> bool:

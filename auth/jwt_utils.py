@@ -37,7 +37,6 @@ class JWTUtils:
             Словарь с claims токена или None в случае ошибки
         """
         try:
-            logger.debug(f"Декодирование токена: {token[:50]}...")
             
             # Настройки верификации
             options = {
@@ -49,7 +48,6 @@ class JWTUtils:
                 "verify_iat": False,   # Отключаем проверку "issued at" для тестирования
             }
             
-            logger.debug(f"Опции декодирования: {options}")
             
             # Декодируем токен без проверки подписи (доверяем reverse proxy)
             if not self.verify_signature:
@@ -63,7 +61,6 @@ class JWTUtils:
                 # Если нужна проверка подписи, потребуется публичный ключ
                 raise NotImplementedError("Проверка подписи требует настройки публичного ключа")
             
-            logger.debug(f"Токен успешно декодирован. Subject: {decoded.get('sub', 'unknown')}, exp: {decoded.get('exp')}")
             return decoded
             
         except jwt.ExpiredSignatureError as e:
@@ -161,13 +158,11 @@ class JWTUtils:
             exp = decoded.get('exp')
             if not exp:
                 # Если нет срока действия, считаем токен действительным
-                logger.debug("Токен не содержит срок действия, считаем действительным")
                 return False
                 
             current_time = datetime.utcnow().timestamp()
             is_expired = current_time > exp
             
-            logger.debug(f"Проверка срока действия: current={current_time}, exp={exp}, expired={is_expired}")
             return is_expired
             
         except Exception as e:

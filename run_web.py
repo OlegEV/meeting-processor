@@ -39,7 +39,7 @@ def setup_logging(log_level: str = "DEBUG", log_file: str = "web_app.log"):
     """Настраивает систему логирования"""
     from logging.handlers import RotatingFileHandler
     
-    level = getattr(logging, log_level.upper(), logging.DEBUG)
+    level = getattr(logging, log_level.upper(), logging.INFO)
     
     # Создаем папку для логов
     os.makedirs("logs", exist_ok=True)

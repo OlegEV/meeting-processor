@@ -42,7 +42,6 @@ class TokenValidator:
         token = request_obj.headers.get(self.token_header)
         
         if not token:
-            logger.debug(f"Токен не найден в заголовке {self.token_header}")
             return None
             
         # Убираем префикс Bearer если есть
@@ -54,7 +53,6 @@ class TokenValidator:
         token = token.strip()
         
         if not token:
-            logger.debug("Пустой токен после обработки")
             return None
             
         return token
@@ -78,13 +76,11 @@ class TokenValidator:
             
         # Проверяем, не истек ли токен
         is_expired = self.jwt_utils.is_token_expired(token)
-        logger.debug(f"Проверка срока действия токена: истек={is_expired}")
         if is_expired:
             return False, None, "Токен истек"
             
         # Извлекаем информацию о пользователе
         user_info = self.jwt_utils.extract_user_info(token)
-        logger.debug(f"Извлеченная информация о пользователе: {user_info}")
         if not user_info:
             return False, None, "Не удалось извлечь информацию о пользователе из токена"
             
@@ -92,7 +88,6 @@ class TokenValidator:
         if not user_info.get('user_id'):
             return False, None, "Токен не содержит идентификатор пользователя"
             
-        logger.debug(f"Токен валиден для пользователя: {user_info['user_id']}")
         return True, user_info, None
     
     def validate_request(self, request_obj=None) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
