@@ -18,7 +18,7 @@ services:
       - ./team_config.json:/app/team_config.json:ro
     environment:
       - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - FLASK_ENV=production
       - AUTH_TOKEN_HEADER=X-Identity-Token
     restart: unless-stopped
@@ -48,7 +48,7 @@ services:
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     restart: unless-stopped
     networks:
       - meeting-network

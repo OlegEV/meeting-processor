@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Скрипт для выбора и тестирования моделей Claude
+Скрипт для выбора и тестирования моделей Claude через OpenRouter
 """
 
 import json
@@ -87,13 +87,22 @@ def update_config_model(config_file: str, new_model: str):
         return False
 
 def test_claude_model(model_id: str, api_key: str):
-    """Тестирует модель Claude"""
+    """Тестирует модель Claude через OpenRouter"""
     try:
-        import anthropic
+        from openrouter_client import OpenRouterClient
         
-        print(f"🧪 Тестирую модель {model_id}...")
+        print(f"🧪 Тестирую модель {model_id} через OpenRouter...")
         
-        client = anthropic.Anthropic(api_key=api_key)
+        # Преобразуем модель в формат OpenRouter
+        model_mapping = {
+            "claude-3-haiku-20240307": "anthropic/claude-3-haiku",
+            "claude-3-sonnet-20240229": "anthropic/claude-3-sonnet",
+            "claude-3-opus-20240229": "anthropic/claude-3-opus",
+            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4"
+        }
+        openrouter_model = model_mapping.get(model_id, "anthropic/claude-sonnet-4")
+        
+        client = OpenRouterClient(api_key=api_key, model=openrouter_model)
         
         test_prompt = """
 Создай краткий тестовый протокол встречи на основе этого примера:
@@ -103,15 +112,16 @@ def test_claude_model(model_id: str, api_key: str):
 Протокол должен содержать разделы: Решения, Ответственные, Сроки.
 """
         
-        response = client.messages.create(
-            model=model_id,
-            max_tokens=500,
-            messages=[{"role": "user", "content": test_prompt}]
+        result = client.create_message_anthropic_format(
+            content=test_prompt,
+            max_tokens=500
         )
         
-        result = response.content[0].text
+        if not result:
+            print(f"❌ Не удалось получить ответ от OpenRouter API")
+            return False
         
-        print(f"✅ Модель {model_id} работает!")
+        print(f"✅ Модель {model_id} ({openrouter_model}) работает!")
         print(f"📝 Пример ответа:")
         print("-" * 40)
         print(result[:300] + "..." if len(result) > 300 else result)
@@ -168,6 +178,7 @@ def main():
         
         if not api_key or api_key == "your_claude_api_key_here":
             print("❌ API ключ Claude не настроен в config.json")
+            print("💡 Теперь используется OpenRouter API - обновите ключ на OpenRouter API ключ")
             return
         
         if current_model != "не указана":
@@ -181,6 +192,7 @@ def main():
         
         if not api_key or api_key == "your_claude_api_key_here":
             print("❌ API ключ Claude не настроен в config.json")
+            print("💡 Теперь используется OpenRouter API - обновите ключ на OpenRouter API ключ")
             return
         
         print(f"\nВыберите модель для тестирования (1-{len(model_list)}):")
@@ -210,6 +222,10 @@ def main():
             print(f"   🤖 Рекомендуется: {model}")
             print(f"   💭 Причина: {reason}")
             print()
+        
+        print("🔄 ВАЖНО: Теперь система использует OpenRouter API")
+        print("   Убедитесь, что у вас есть действующий API ключ OpenRouter")
+        print("   Обновите ключ в config.json в разделе api_keys.claude")
     
     elif choice == "5":
         print("👋 До свидания!")

@@ -21,9 +21,9 @@ def check_dependencies():
         missing_packages.append("deepgram-sdk")
     
     try:
-        import anthropic
+        import openai
     except ImportError:
-        missing_packages.append("anthropic")
+        missing_packages.append("openai")
     
     try:
         import requests

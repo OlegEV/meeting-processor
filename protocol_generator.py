@@ -6,20 +6,31 @@
 from typing import Dict, Optional
 
 try:
-    import anthropic
+    from openrouter_client import OpenRouterClient
 except ImportError:
-    print("❌ Модуль anthropic не установлен: pip install anthropic")
-    anthropic = None
+    print("❌ Модуль openrouter_client не найден")
+    OpenRouterClient = None
+
+try:
+    import openai
+except ImportError:
+    print("❌ Модуль openai не установлен: pip install openai")
+    openai = None
 
 class ProtocolGenerator:
-    """Генератор протоколов встреч через Claude API"""
+    """Генератор протоколов встреч через OpenRouter API"""
     
-    def __init__(self, api_key: str, model: str = "claude-3-sonnet-20240229"):
-        if not anthropic:
-            raise ImportError("anthropic не установлен")
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
+        if not OpenRouterClient:
+            raise ImportError("openrouter_client не найден")
+        if not openai:
+            raise ImportError("openai не установлен")
             
-        self.client = anthropic.Anthropic(api_key=api_key)
+        # Преобразуем модель в формат OpenRouter
+        openrouter_model = self._get_openrouter_model_name(model)
+        self.client = OpenRouterClient(api_key=api_key, model=openrouter_model)
         self.model = model
+        self.openrouter_model = openrouter_model
     
     def generate_meeting_summary(self,
                                transcript: str,
@@ -29,7 +40,7 @@ class ProtocolGenerator:
                                templates_system = None) -> Optional[str]:
         """Генерирует протокол встречи через Claude API"""
         try:
-            print(f"🤖 Генерирую протокол встречи через Claude ({self.model})...")
+            print(f"🤖 Генерирую протокол встречи через OpenRouter ({self.openrouter_model})...")
             print(f"   📊 Длина транскрипта: {len(transcript)} символов")
             print(f"   📝 Тип шаблона: {template_type}")
             print(f"   🔑 API ключ: {'✅ установлен' if self.client.api_key else '❌ отсутствует'}")
@@ -57,20 +68,21 @@ class ProtocolGenerator:
             if templates_system and hasattr(templates_system, 'config'):
                 max_tokens = templates_system.config.get("template_settings", {}).get("max_tokens", 2000)
             
-            print(f"🚀 Отправляю запрос к Claude API...")
+            print(f"🚀 Отправляю запрос к OpenRouter API...")
             print(f"   📏 Длина промпта: {len(prompt)} символов")
             print(f"   🎯 Максимум токенов: {max_tokens}")
             
-            # Отправляем запрос к Claude
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}]
+            # Отправляем запрос к OpenRouter
+            summary = self.client.create_message_anthropic_format(
+                content=prompt,
+                max_tokens=max_tokens
             )
             
-            print(f"✅ Получен ответ от Claude API")
-            
-            summary = response.content[0].text
+            if not summary:
+                print(f"❌ Не удалось получить ответ от OpenRouter API")
+                return None
+                
+            print(f"✅ Получен ответ от OpenRouter API")
             
             # Добавляем техническую информацию
             summary = self._add_technical_info(
@@ -195,3 +207,21 @@ class ProtocolGenerator:
             return 0.0
         
         return sum(confidence_scores.values()) / len(confidence_scores)
+    
+    def _get_openrouter_model_name(self, anthropic_model: str) -> str:
+        """
+        Преобразует название модели Anthropic в формат OpenRouter
+        
+        Args:
+            anthropic_model: Название модели в формате Anthropic
+            
+        Returns:
+            Название модели в формате OpenRouter
+        """
+        model_mapping = {
+            "claude-3-haiku-20240307": "anthropic/claude-3-haiku",
+            "claude-3-sonnet-20240229": "anthropic/claude-3-sonnet",
+            "claude-3-opus-20240229": "anthropic/claude-3-opus",
+            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4"
+        }
+        return model_mapping.get(anthropic_model, "anthropic/claude-sonnet-4")

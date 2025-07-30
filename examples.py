@@ -8,7 +8,7 @@ from meeting_processor import MeetingProcessor
 # Инициализация процессора
 processor = MeetingProcessor(
     deepgram_api_key="your_deepgram_key",
-    claude_api_key="your_claude_key"
+    claude_api_key="your_openrouter_api_key"
 )
 
 # Настройка замен имен

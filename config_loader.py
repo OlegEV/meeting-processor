@@ -23,7 +23,7 @@ class ConfigLoader:
                 default_keys = {
                     "api_keys": {
                         "deepgram": "your_deepgram_api_key_here",
-                        "claude": "your_claude_api_key_here"
+                        "claude": "your_openrouter_api_key_here"
                     }
                 }
                 with open(api_keys_file, "w", encoding="utf-8") as f:
@@ -76,7 +76,7 @@ class ConfigLoader:
         claude_key = api_keys.get("api_keys", {}).get("claude", "")
         
         deepgram_valid = deepgram_key and deepgram_key != "your_deepgram_api_key_here"
-        claude_valid = claude_key and claude_key != "your_claude_api_key_here"
+        claude_valid = claude_key and claude_key not in ["your_claude_api_key_here", "your_openrouter_api_key_here"]
         
         return deepgram_valid, claude_valid, deepgram_key, claude_key
     
