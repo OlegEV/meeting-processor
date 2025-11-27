@@ -118,6 +118,187 @@
     100% { opacity: 1; }
 }
 
+/* Стили для Confluence публикации */
+.confluence-form {
+    background: linear-gradient(135deg, #e3f2fd 0%, #f8f9fa 100%);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 15px 0;
+}
+
+.confluence-form .form-control:focus {
+    border-color: #17a2b8;
+    box-shadow: 0 0 0 0.2rem rgba(23, 162, 184, 0.25);
+}
+
+.confluence-form .btn-info {
+    background: linear-gradient(45deg, #17a2b8, #20c997);
+    border: none;
+    transition: all 0.3s ease;
+}
+
+.confluence-form .btn-info:hover {
+    background: linear-gradient(45deg, #138496, #1e7e34);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.confluence-form .btn-info:disabled {
+    background: #6c757d;
+    transform: none;
+    box-shadow: none;
+}
+
+.publication-result {
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.publication-history {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 20px;
+}
+
+.publication-history .list-group-item {
+    border: none;
+    border-bottom: 1px solid #dee2e6;
+    background: transparent;
+    padding: 12px 0;
+}
+
+.publication-history .list-group-item:last-child {
+    border-bottom: none;
+}
+
+.publication-history .list-group-item:hover {
+    background: rgba(0, 123, 255, 0.05);
+    border-radius: 4px;
+}
+
+.confluence-url-input {
+    position: relative;
+}
+
+.confluence-url-input .form-control.is-invalid {
+    border-color: #dc3545;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' width='12' height='12' fill='none' stroke='%23dc3545'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath d='m5.8 4.6 1.4 1.4M7.2 4.6l-1.4 1.4'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right calc(0.375em + 0.1875rem) center;
+    background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
+}
+
+.confluence-status-indicator {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.confluence-status-indicator.success {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.confluence-status-indicator.error {
+    background: #f8d7da;
+    color: #842029;
+}
+
+.confluence-status-indicator.pending {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.confluence-loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.confluence-loading .spinner-border {
+    width: 1rem;
+    height: 1rem;
+}
+
+/* Анимация для успешной публикации */
+.publication-success {
+    animation: successPulse 0.6s ease-out;
+}
+
+@keyframes successPulse {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+    }
+    50% {
+        transform: scale(1.02);
+        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+    }
+}
+
+/* Стили для истории публикаций */
+.publication-item {
+    transition: all 0.2s ease;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 8px;
+    background: white;
+    border: 1px solid #e9ecef;
+}
+
+.publication-item:hover {
+    border-color: #17a2b8;
+    box-shadow: 0 2px 4px rgba(23, 162, 184, 0.1);
+}
+
+.publication-item .publication-title {
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 4px;
+}
+
+.publication-item .publication-meta {
+    font-size: 0.875rem;
+    color: #6c757d;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.publication-item .publication-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.publication-error {
+    background: #fff5f5;
+    border-color: #fed7d7;
+    color: #c53030;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    margin-top: 8px;
+}
+
 /* Адаптивность */
 @media (max-width: 768px) {
     .step-header {
@@ -127,5 +308,42 @@
     
     .step-status {
         margin-top: 5px;
+    }
+    
+    .confluence-form {
+        padding: 15px;
+        margin: 10px 0;
+    }
+    
+    .publication-item .publication-meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+    
+    .publication-item .publication-actions {
+        margin-top: 8px;
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 576px) {
+    .confluence-form .row .col-md-8,
+    .confluence-form .row .col-md-4 {
+        margin-bottom: 15px;
+    }
+    
+    .publication-item {
+        padding: 10px;
+    }
+    
+    .publication-item .d-flex {
+        flex-direction: column;
+        align-items: flex-start !important;
+    }
+    
+    .publication-item .publication-actions {
+        margin-top: 10px;
+        width: 100%;
     }
 }

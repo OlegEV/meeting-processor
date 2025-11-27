@@ -95,12 +95,10 @@ def test_claude_model(model_id: str, api_key: str):
         
         # Преобразуем модель в формат OpenRouter
         model_mapping = {
-            "claude-3-haiku-20240307": "anthropic/claude-3-haiku",
-            "claude-3-sonnet-20240229": "anthropic/claude-3-sonnet",
-            "claude-3-opus-20240229": "anthropic/claude-3-opus",
-            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4"
+            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4",
+            "anthropic/claude-sonnet-4.5": "anthropic/claude-sonnet-4.5"
         }
-        openrouter_model = model_mapping.get(model_id, "anthropic/claude-sonnet-4")
+        openrouter_model = model_mapping.get(model_id, "anthropic/claude-sonnet-4.5")
         
         client = OpenRouterClient(api_key=api_key, model=openrouter_model)
         

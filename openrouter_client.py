@@ -9,21 +9,21 @@ import openai
 class OpenRouterClient:
     """Клиент для работы с OpenRouter API"""
     
-    def __init__(self, api_key: str, model: str = "anthropic/claude-sonnet-4"):
+    def __init__(self, api_key: str, model: str = "anthropic/claude-sonnet-4.5"):
         """
         Инициализация клиента OpenRouter
         
         Args:
             api_key: API ключ OpenRouter
-            model: Название модели (например, "anthropic/claude-sonnet-4")
+            model: Название модели (например, "anthropic/claude-sonnet-4.5")
         """
         self.api_key = api_key
         self.model = model
         
         # Настройка клиента OpenAI для работы с OpenRouter
         self.client = openai.OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1"
         )
     
     def create_message(self, 
@@ -75,10 +75,8 @@ class OpenRouterClient:
     def available_models(self) -> Dict[str, str]:
         """Возвращает доступные модели Anthropic через OpenRouter"""
         return {
-            "claude-3-haiku-20240307": "anthropic/claude-3-haiku",
-            "claude-3-sonnet-20240229": "anthropic/claude-3-sonnet", 
-            "claude-3-opus-20240229": "anthropic/claude-3-opus",
-            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4"
+            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4",
+            "anthropic/claude-sonnet-4.5": "anthropic/claude-sonnet-4.5"
         }
     
     def get_openrouter_model_name(self, anthropic_model: str) -> str:
@@ -91,4 +89,4 @@ class OpenRouterClient:
         Returns:
             Название модели в формате OpenRouter
         """
-        return self.available_models.get(anthropic_model, "anthropic/claude-sonnet-4")
+        return self.available_models.get(anthropic_model, "anthropic/claude-sonnet-4.5")

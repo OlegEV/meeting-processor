@@ -7,31 +7,54 @@ import os
 import time
 from pathlib import Path
 from typing import List, Optional
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 try:
-    from deepgram import DeepgramClient, PrerecordedOptions
+    from deepgram import DeepgramClient
+    # В SDK v5.3.0 нет отдельных классов ошибок, используем базовый Exception
+    DeepgramError = Exception
+    DeepgramApiError = Exception
 except ImportError:
     print("❌ Модуль deepgram-sdk не установлен: pip install deepgram-sdk")
     DeepgramClient = None
-    PrerecordedOptions = None
+    DeepgramError = None
+    DeepgramApiError = None
 
 try:
     import httpx
 except ImportError:
-    print("⚠️ Модуль httpx не найден, используем стандартные таймауты")
+    print("❌ Модуль httpx не установлен: pip install httpx")
     httpx = None
 
 class TranscriptionService:
     """Сервис для транскрипции аудио через Deepgram"""
     
-    def __init__(self, api_key: str, timeout: int = 300, options: dict = None, max_retries: int = 3):
+    def __init__(self, api_key: str, timeout: int = 300, options: dict = None, max_retries: int = 3,
+                 language: str = "multi", model: str = "nova-3"):
         if not DeepgramClient:
             raise ImportError("deepgram-sdk не установлен")
-            
-        self.client = DeepgramClient(api_key)
+        
+        if not httpx:
+            raise ImportError("httpx не установлен")
+        
+        # Настройка httpx timeout для SDK v5
+        timeout_config = httpx.Timeout(
+            timeout=float(timeout),
+            connect=30.0,
+            read=float(timeout),
+            write=30.0,
+            pool=10.0
+        )
+        
+        # Инициализация клиента Deepgram SDK v5.3.0
+        # Timeout передается напрямую как параметр
+        self.client = DeepgramClient(
+            api_key=api_key,
+            timeout=timeout_config
+        )
         self.timeout = timeout
         self.max_retries = max_retries
+        self.language = language
+        self.model = model
         
         # Настройки Deepgram по умолчанию
         default_options = {
@@ -53,24 +76,55 @@ class TranscriptionService:
         timeout = timeout_override or self.timeout
         
         def transcribe_request():
-            """Функция для выполнения запроса транскрипции"""
-            # Создаем опции
-            options = PrerecordedOptions(
-                model="nova-2",
-                language="ru",
-                punctuate=self.options.get("punctuate", True),
-                diarize=self.options.get("diarize", True),
-                smart_format=self.options.get("smart_format", True),
-                paragraphs=self.options.get("paragraphs", True),
-                utterances=self.options.get("utterances", False),
-                summarize=self.options.get("summarize", False),
-                detect_language=self.options.get("detect_language", False)
+            """Функция для выполнения запроса транскрипции через SDK v5"""
+            
+            # Создаем опции для API запроса (SDK v5 использует dict)
+            options = {
+                "model": self.model,
+                "language": self.language,
+                "punctuate": self.options.get("punctuate", True),
+                "diarize": self.options.get("diarize", True),
+                "smart_format": self.options.get("smart_format", True),
+                "paragraphs": self.options.get("paragraphs", True),
+                "utterances": self.options.get("utterances", False),
+                "summarize": self.options.get("summarize", False),
+                "detect_language": self.options.get("detect_language", False)
+            }
+            
+            # Вызываем SDK v5 метод транскрипции
+            # В SDK v5.3.0 все параметры передаются как именованные аргументы
+            # Timeout передается через request_options
+            from deepgram.core.request_options import RequestOptions
+            
+            request_opts = RequestOptions(
+                timeout_in_seconds=timeout
             )
             
-            payload = {"buffer": audio_data}
-            response = self.client.listen.rest.v("1").transcribe_file(payload, options)
+            try:
+                response = self.client.listen.v1.media.transcribe_file(
+                    request=audio_data,
+                    model=options.get("model"),
+                    language=options.get("language"),
+                    punctuate=options.get("punctuate"),
+                    diarize=options.get("diarize"),
+                    smart_format=options.get("smart_format"),
+                    paragraphs=options.get("paragraphs"),
+                    utterances=options.get("utterances"),
+                    summarize=options.get("summarize"),
+                    detect_language=options.get("detect_language"),
+                    request_options=request_opts
+                )
+            except DeepgramApiError as e:
+                print(f"❌ Ошибка Deepgram API: {e}")
+                raise
+            except DeepgramError as e:
+                print(f"❌ Ошибка Deepgram SDK: {e}")
+                raise
+            except Exception as e:
+                print(f"❌ Неожиданная ошибка при транскрипции: {e}")
+                raise
             
-            # Анализируем структуру ответа
+            # Анализируем структуру ответа (response - это SyncPrerecordedResponse из SDK v5)
             channels = response.results.channels
             
             if channels and len(channels) > 0:
@@ -120,46 +174,54 @@ class TranscriptionService:
             print("   Статус: Неожиданная структура ответа")
             return ""  # Возвращаем пустую строку вместо None
         
-        # Retry логика при таймаутах
+        # Retry логика с обработкой httpx исключений
         for attempt in range(1, self.max_retries + 1):
             try:
                 if attempt == 1:
                     print(f"🎤 Настройки Deepgram:")
-                    print(f"   model: nova-2, language: ru")
+                    print(f"   model: {self.model}, language: {self.language}")
                     for option, value in self.options.items():
                         print(f"   {option}: {value}")
                 else:
                     print(f"🔄 Повторная попытка {attempt}/{self.max_retries}")
                 
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(transcribe_request)
+                # Вызываем функцию транскрипции (SDK v5 с httpx timeout)
+                result = transcribe_request()
+                
+                if attempt > 1:
+                    print(f"✅ Запрос успешен с попытки {attempt}")
+                
+                # Проверяем результат
+                if result is not None:
+                    if result == "":
+                        print("ℹ️ Файл содержит тишину или неразборчивую речь")
+                        return ""  # Возвращаем пустую строку как валидный результат
+                    else:
+                        return result
+                else:
+                    print("❌ Получен None результат")
+                    return None
                     
-                    try:
-                        result = future.result(timeout=timeout)
-                        if attempt > 1:
-                            print(f"✅ Запрос успешен с попытки {attempt}")
-                        
-                        # Проверяем результат
-                        if result is not None:
-                            if result == "":
-                                print("ℹ️ Файл содержит тишину или неразборчивую речь")
-                                return ""  # Возвращаем пустую строку как валидный результат
-                            else:
-                                return result
-                        else:
-                            print("❌ Получен None результат")
-                            return None
-                    except FutureTimeoutError:
-                        print(f"⏰ Таймаут {timeout} секунд превышен (попытка {attempt}/{self.max_retries})")
-                        future.cancel()
-                        
-                        # Если это не последняя попытка, ждем перед retry
-                        if attempt < self.max_retries:
-                            wait_time = min(10 * attempt, 30)  # Экспоненциальная задержка, максимум 30 сек
-                            print(f"⏳ Ожидание {wait_time} секунд перед повтором...")
-                            time.sleep(wait_time)
-                        continue
-                        
+            except httpx.TimeoutException as e:
+                print(f"⏰ Таймаут {timeout} секунд превышен (попытка {attempt}/{self.max_retries}): {e}")
+                
+                # Если это не последняя попытка, ждем перед retry
+                if attempt < self.max_retries:
+                    wait_time = min(10 * attempt, 30)  # Экспоненциальная задержка, максимум 30 сек
+                    print(f"⏳ Ожидание {wait_time} секунд перед повтором...")
+                    time.sleep(wait_time)
+                continue
+                
+            except (DeepgramApiError, DeepgramError) as e:
+                print(f"❌ Ошибка Deepgram (попытка {attempt}/{self.max_retries}): {e}")
+                
+                # Если это не последняя попытка, ждем перед retry
+                if attempt < self.max_retries:
+                    wait_time = min(5 * attempt, 15)  # Короткая задержка при других ошибках
+                    print(f"⏳ Ожидание {wait_time} секунд перед повтором...")
+                    time.sleep(wait_time)
+                continue
+                
             except Exception as e:
                 print(f"❌ Ошибка транскрипции (попытка {attempt}/{self.max_retries}): {e}")
                 

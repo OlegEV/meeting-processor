@@ -11,7 +11,7 @@
   "auth": {
     "token_header": "X-Identity-Token",
     "jwt_algorithm": "RS256",
-    "debug_mode": false,
+    "debug_mode": true,
     "debug_user": {
       "user_id": "debug_user",
       "email": "debug@localhost",
@@ -38,14 +38,14 @@
 
   "settings": {
     "keep_audio_file": false,
-    "language": "ru",
-    "deepgram_model": "nova-2",
-    "claude_model": "claude-sonnet-4-20250514",
+    "language": "multi",
+    "deepgram_model": "nova-3",
+    "claude_model": "anthropic/claude-sonnet-4.5",
     "deepgram_timeout_seconds": 300,
-    "chunk_duration_minutes": 15,
+    "chunk_duration_minutes": 30,
     "max_file_size_mb": 200,
-    "max_duration_minutes": 15,
-    "request_pause_seconds": 5,
+    "max_duration_minutes": 30,
+    "request_pause_seconds": 10,
     "max_retries": 3,
     "template_type": "standard"
   },
@@ -62,9 +62,9 @@
 
   "template_settings": {
     "auto_detect_meeting_type": false,
-    "include_technical_info": true,
-    "include_file_datetime": true,
-    "max_tokens": 2000,
+    "include_technical_info": false,
+    "include_file_datetime": false,
+    "max_tokens": 2600,
     "fallback_template": "standard"
   },
 
@@ -75,10 +75,8 @@
   },
 
   "claude_models": {
-    "sonnet": "claude-3-sonnet-20240229",
-    "opus": "claude-3-opus-20240229",
-    "haiku": "claude-3-haiku-20240307",
-    "sonnet-4": "claude-sonnet-4-20250514"
+    "sonnet-4": "claude-sonnet-4-20250514", 
+    "anthropic/claude-sonnet-4.5": "anthropic/claude-sonnet-4.5"
   },
 
   "template_examples": {

@@ -16,7 +16,7 @@ def check_dependencies():
     missing_packages = []
     
     try:
-        from deepgram import DeepgramClient, PrerecordedOptions
+        from deepgram import DeepgramClient
     except ImportError:
         missing_packages.append("deepgram-sdk")
     
@@ -79,9 +79,9 @@ except ImportError:
 class MeetingProcessor:
     """Основной класс для обработки встреч"""
     
-    def __init__(self, 
-                 deepgram_api_key: str, 
-                 claude_api_key: str, 
+    def __init__(self,
+                 deepgram_api_key: str,
+                 claude_api_key: str,
                  deepgram_timeout: int = 300,
                  claude_model: str = "claude-3-sonnet-20240229",
                  deepgram_options: dict = None,
@@ -90,17 +90,28 @@ class MeetingProcessor:
                  templates_config_file: str = "templates_config.json",
                  team_config_file: str = "team_config.json",
                  progress_callback: Callable[[int, str], None] = None,
-                 deepgram_max_retries: int = 3):
+                 deepgram_max_retries: int = 3,
+                 deepgram_language: str = "ru",
+                 deepgram_model: str = "nova-2"):
         """
         Инициализация процессора встреч
         
         Args:
             progress_callback: Функция для отправки прогресса (progress, message)
             deepgram_max_retries: Максимальное количество повторных попыток при таймауте Deepgram
+            deepgram_language: Язык для транскрипции Deepgram
+            deepgram_model: Модель Deepgram для транскрипции
         """
         # Инициализируем компоненты
         self.audio_processor = AudioProcessor()
-        self.transcription_service = TranscriptionService(deepgram_api_key, deepgram_timeout, deepgram_options, deepgram_max_retries)
+        self.transcription_service = TranscriptionService(
+            deepgram_api_key,
+            deepgram_timeout,
+            deepgram_options,
+            deepgram_max_retries,
+            deepgram_language,
+            deepgram_model
+        )
         self.protocol_generator = ProtocolGenerator(claude_api_key, claude_model)
         
         # Основные настройки
@@ -590,7 +601,9 @@ def main():
             deepgram_api_key=deepgram_key,
             claude_api_key="dummy",  # Не нужен для транскрибирования
             deepgram_timeout=settings['deepgram_timeout'],
-            chunk_duration_minutes=settings['chunk_minutes']
+            chunk_duration_minutes=settings['chunk_minutes'],
+            deepgram_language=settings.get('deepgram_language', 'ru'),
+            deepgram_model=settings.get('deepgram_model', 'nova-2')
         )
         
         success = processor.transcribe_only(
@@ -677,7 +690,9 @@ def main():
             chunk_duration_minutes=settings['chunk_minutes'],
             template_type=settings['template_type'],
             templates_config_file=settings['templates_config'],
-            team_config_file=settings['team_config']
+            team_config_file=settings['team_config'],
+            deepgram_language=settings.get('deepgram_language', 'ru'),
+            deepgram_model=settings.get('deepgram_model', 'nova-2')
         )
         
         success = processor.process_meeting(

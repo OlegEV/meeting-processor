@@ -100,6 +100,10 @@ class ConfigLoader:
         settings['claude_model'] = getattr(args, 'claude_model', None) or config.get("settings", {}).get("claude_model", "claude-3-sonnet-20240229")
         settings['template_type'] = getattr(args, 'template', None) or config.get("settings", {}).get("template_type", "standard")
         
+        # Настройки Deepgram
+        settings['deepgram_language'] = config.get("settings", {}).get("language", "ru")
+        settings['deepgram_model'] = config.get("settings", {}).get("deepgram_model", "nova-3")
+        
         # Опции Deepgram
         settings['deepgram_options'] = config.get("deepgram_options", {})
         

@@ -34,7 +34,7 @@ class WebTemplates:
             {% if messages %}
                 {% for category, message in messages %}
                     <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
-                        {{ message }}
+                        {{ message|safe }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>
                 {% endfor %}
@@ -197,6 +197,7 @@ class WebTemplates:
     <title>Статус обработки</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/progress.css" rel="stylesheet">
 </head>
 <body class="bg-light">
     <nav class="navbar navbar-dark bg-primary">
@@ -210,6 +211,17 @@ class WebTemplates:
     </nav>
 
     <div class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
+                        {{ message|safe }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
         <div class="row justify-content-center">
             <div class="col-md-8">
                 <div class="card shadow">
@@ -303,6 +315,61 @@ class WebTemplates:
                                 </div>
                             </div>
                             
+                            <!-- Форма для публикации в Confluence -->
+                            <div class="card border-info mb-3">
+                                <div class="card-header bg-info text-white">
+                                    <h6 class="mb-0"><i class="fas fa-cloud-upload-alt me-2"></i>Публикация в Confluence</h6>
+                                </div>
+                                <div class="card-body">
+                                    <form id="confluenceForm" method="POST" action="/publish_confluence/{{ job_id }}">
+                                        <div class="row">
+                                            <div class="col-md-12 mb-3">
+                                                <label for="base_page_url" class="form-label">
+                                                    <i class="fas fa-link me-1"></i>URL базовой страницы Confluence <span class="text-danger">*</span>
+                                                </label>
+                                                <input type="url" class="form-control" id="base_page_url" name="base_page_url"
+                                                       placeholder="Server: https://wiki.domain.com/pages/viewpage.action?pageId=123456 или https://wiki.domain.com/display/SPACE/PAGE"
+                                                       required>
+                                                <div class="form-text">
+                                                    <i class="fas fa-info-circle me-1"></i>
+                                                    URL страницы, под которой будет создан протокол встречи
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-8 mb-3">
+                                                <label for="page_title" class="form-label">
+                                                    <i class="fas fa-heading me-1"></i>Заголовок страницы
+                                                </label>
+                                                <input type="text" class="form-control" id="page_title" name="page_title"
+                                                       placeholder="Автоматически сгенерируется из содержимого">
+                                                <div class="form-text">
+                                                    Оставьте пустым для автоматической генерации
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-12">
+                                                <button type="submit" class="btn btn-info w-100" id="publishBtn">
+                                                    <i class="fas fa-cloud-upload-alt me-2"></i>Опубликовать в Confluence
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </form>
+                                    
+                                    <!-- Область для отображения результата публикации -->
+                                    <div id="publicationResult" class="mt-3" style="display: none;">
+                                        <div id="publicationAlert" class="alert" role="alert"></div>
+                                    </div>
+                                    
+                                    <!-- История публикаций -->
+                                    <div id="publicationHistory" class="mt-4" style="display: none;">
+                                        <h6><i class="fas fa-history me-2"></i>История публикаций</h6>
+                                        <div id="publicationHistoryContent"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <a href="/" class="btn btn-success">
                                 <i class="fas fa-plus me-2"></i>Обработать еще файл
                             </a>
@@ -337,6 +404,226 @@ class WebTemplates:
                     })
                     .catch(error => console.error('Ошибка обновления статуса:', error));
             }, 2000);
+        {% endif %}
+        
+        {% if job.status == 'completed' %}
+        // Confluence publication functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const confluenceForm = document.getElementById('confluenceForm');
+            const basePageUrlInput = document.getElementById('base_page_url');
+            const pageTitleInput = document.getElementById('page_title');
+            const publishBtn = document.getElementById('publishBtn');
+            const publicationResult = document.getElementById('publicationResult');
+            const publicationAlert = document.getElementById('publicationAlert');
+            
+            // Validate URL format when input changes
+            basePageUrlInput.addEventListener('input', function() {
+                const url = this.value;
+                validateConfluenceUrl(url);
+            });
+            
+            // Auto-generate page title if empty
+            pageTitleInput.addEventListener('focus', function() {
+                if (!this.value) {
+                    const today = new Date();
+                    const dateStr = today.getFullYear() +
+                                  String(today.getMonth() + 1).padStart(2, '0') +
+                                  String(today.getDate()).padStart(2, '0');
+                    this.placeholder = dateStr + ' - Протокол встречи';
+                }
+            });
+            
+            function validateConfluenceUrl(url) {
+                // Confluence Server формат 1: https://wiki.domain.com/pages/viewpage.action?pageId=123456
+                const serverPattern1 = /^https?:\/\/[^\/]+\/pages\/viewpage\.action\?pageId=\d+/;
+                
+                // Confluence Server формат 2: https://wiki.domain.com/display/SPACE/PAGE
+                const serverPattern2 = /^https?:\/\/[^\/]+\/display\/[^\/]+\/[^\/]+/;
+                
+                // Confluence Cloud формат: https://domain.atlassian.net/wiki/spaces/SPACE/pages/123456/Page+Title
+                const cloudPattern = /^https?:\/\/[^\/]+\.atlassian\.net\/wiki\/spaces\/[^\/]+\/pages\/\d+/;
+                
+                const isServer1 = serverPattern1.test(url);
+                const isServer2 = serverPattern2.test(url);
+                const isCloud = cloudPattern.test(url);
+                const isValid = isServer1 || isServer2 || isCloud;
+                
+                if (url && !isValid) {
+                    basePageUrlInput.classList.add('is-invalid');
+                    if (!document.querySelector('.invalid-feedback')) {
+                        const feedback = document.createElement('div');
+                        feedback.className = 'invalid-feedback';
+                        feedback.textContent = 'Неверный формат URL Confluence. Поддерживаются форматы:\n• Cloud: https://domain.atlassian.net/wiki/spaces/SPACE/pages/123456/Page+Title\n• Server: https://wiki.domain.com/pages/viewpage.action?pageId=123456\n• Server: https://wiki.domain.com/display/SPACE/PAGE';
+                        basePageUrlInput.parentNode.appendChild(feedback);
+                    }
+                } else {
+                    basePageUrlInput.classList.remove('is-invalid');
+                    const feedback = document.querySelector('.invalid-feedback');
+                    if (feedback) {
+                        feedback.remove();
+                    }
+                }
+                
+                return isValid;
+            }
+            
+            // Handle form submission
+            confluenceForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const basePageUrl = basePageUrlInput.value.trim();
+                if (!basePageUrl) {
+                    showAlert('Пожалуйста, укажите URL базовой страницы', 'danger');
+                    return;
+                }
+                
+                if (!validateConfluenceUrl(basePageUrl)) {
+                    showAlert('Неверный формат URL Confluence', 'danger');
+                    return;
+                }
+                
+                // Show loading state
+                publishBtn.disabled = true;
+                publishBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Публикация...';
+                
+                // Prepare form data
+                const formData = new FormData(this);
+                
+                // Auto-generate title if empty
+                if (!pageTitleInput.value.trim()) {
+                    const today = new Date();
+                    const dateStr = today.getFullYear() +
+                                  String(today.getMonth() + 1).padStart(2, '0') +
+                                  String(today.getDate()).padStart(2, '0');
+                    formData.set('page_title', dateStr + ' - Протокол встречи');
+                }
+                
+                // Submit via AJAX
+                fetch(this.action, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showAlert(
+                            '<i class="fas fa-check-circle me-2"></i>' +
+                            'Протокол успешно опубликован в Confluence! ' +
+                            '<a href="' + data.page_url + '" target="_blank" class="alert-link">' +
+                            '<i class="fas fa-external-link-alt me-1"></i>Открыть страницу</a>',
+                            'success'
+                        );
+                        loadPublicationHistory();
+                    } else {
+                        showAlert(
+                            '<i class="fas fa-exclamation-triangle me-2"></i>' +
+                            'Ошибка публикации: ' + (data.error || 'Неизвестная ошибка'),
+                            'danger'
+                        );
+                    }
+                })
+                .catch(error => {
+                    console.error('Publication error:', error);
+                    showAlert(
+                        '<i class="fas fa-exclamation-triangle me-2"></i>' +
+                        'Ошибка сети при публикации',
+                        'danger'
+                    );
+                })
+                .finally(() => {
+                    // Reset button state
+                    publishBtn.disabled = false;
+                    publishBtn.innerHTML = '<i class="fas fa-cloud-upload-alt me-2"></i>Опубликовать в Confluence';
+                });
+            });
+            
+            function showAlert(message, type) {
+                publicationAlert.className = 'alert alert-' + type;
+                publicationAlert.innerHTML = message;
+                publicationResult.style.display = 'block';
+                
+                // Auto-hide success messages after 10 seconds
+                if (type === 'success') {
+                    setTimeout(() => {
+                        publicationResult.style.display = 'none';
+                    }, 10000);
+                }
+            }
+            
+            function loadPublicationHistory() {
+                console.log('🔍 DEBUG: Loading publication history for job {{ job_id }}');
+                fetch('/confluence_publications/{{ job_id }}')
+                    .then(response => {
+                        console.log('🔍 DEBUG: Publication history response status:', response.status);
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('🔍 DEBUG: Publication history data:', data);
+                        if (data.publications && data.publications.length > 0) {
+                            console.log('🔍 DEBUG: Displaying', data.publications.length, 'publications');
+                            displayPublicationHistory(data.publications);
+                        } else {
+                            console.log('🔍 DEBUG: No publications found or empty array');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('🔍 DEBUG: Error loading publication history:', error);
+                    });
+            }
+            
+            function displayPublicationHistory(publications) {
+                const historyContent = document.getElementById('publicationHistoryContent');
+                const historySection = document.getElementById('publicationHistory');
+                
+                let html = '<div class="list-group list-group-flush">';
+                publications.forEach(pub => {
+                    const date = new Date(pub.created_at).toLocaleString('ru-RU');
+                    const statusClass = pub.status === 'published' ? 'success' : 'danger';
+                    const statusIcon = pub.status === 'published' ? 'check-circle' : 'exclamation-circle';
+                    
+                    html += `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h6 class="mb-1">
+                                        <i class="fas fa-${statusIcon} text-${statusClass} me-2"></i>
+                                        ${pub.page_title || 'Протокол встречи'}
+                                    </h6>
+                                    <p class="mb-1 text-muted small">
+                                        <i class="fas fa-calendar me-1"></i>${date}
+                                        <i class="fas fa-folder ms-3 me-1"></i>${pub.space_key || 'N/A'}
+                                    </p>
+                                </div>
+                                <div>
+                                    ${pub.page_url ?
+                                        `<a href="${pub.page_url}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-external-link-alt me-1"></i>Открыть
+                                        </a>` :
+                                        '<span class="badge bg-danger">Ошибка</span>'
+                                    }
+                                </div>
+                            </div>
+                            ${pub.error_message ?
+                                `<small class="text-danger">
+                                    <i class="fas fa-exclamation-triangle me-1"></i>${pub.error_message}
+                                </small>` :
+                                ''
+                            }
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                
+                historyContent.innerHTML = html;
+                historySection.style.display = 'block';
+            }
+            
+            // Load publication history on page load
+            loadPublicationHistory();
+        });
         {% endif %}
     </script>
 </body>

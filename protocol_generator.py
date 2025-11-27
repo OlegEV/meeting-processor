@@ -103,7 +103,7 @@ class ProtocolGenerator:
         datetime_info = ""
         if file_datetime_info:
             datetime_info = f"""
-Дата и время встречи: {file_datetime_info['date']} ({file_datetime_info['weekday_ru']}) в {file_datetime_info['time']}
+Дата встречи: {file_datetime_info['date']} ({file_datetime_info['weekday_ru']})
 """
         
         team_info = ""
@@ -118,7 +118,7 @@ class ProtocolGenerator:
 
 Пожалуйста, создай протокол встречи, включающий:
 
-1. **Дата и время встречи**{f" - {file_datetime_info['datetime_full']}" if file_datetime_info else " - указать на основе контекста или как 'не указано'"}
+1. **Дата встречи**{f" - {file_datetime_info['date']}" if file_datetime_info else " - указать на основе контекста или как 'не указано'"}
 2. **Участники встречи** - определи из транскрипта{' (учти предоставленную информацию о команде)' if team_identification else ''}
 3. **Краткое резюме встречи**
 4. **Основные обсуждаемые вопросы**
@@ -129,6 +129,7 @@ class ProtocolGenerator:
 
 Оформи ответ в структурированном виде с четкими заголовками.
 Если дата и время не указаны в транскрипте, используй предоставленную информацию о файле.
+Не вставляй заголовок первого уровня с названием документа.
 """
     
     def _generate_team_context(self, team_identification: Dict, template_type: str) -> str:
@@ -183,7 +184,7 @@ class ProtocolGenerator:
 - День недели: {file_datetime_info['weekday_ru'] if file_datetime_info else 'не указано'}
 - Тип шаблона: {template_type or 'standard'}
 - Модель Claude: {self.model}
-- Протокол создан автоматически на основе аудиозаписи"""
+- Протокол создан автоматически"""
         
         # Добавляем информацию об идентификации команды
         if team_identification and team_identification.get("identified", False):
@@ -219,9 +220,7 @@ class ProtocolGenerator:
             Название модели в формате OpenRouter
         """
         model_mapping = {
-            "claude-3-haiku-20240307": "anthropic/claude-3-haiku",
-            "claude-3-sonnet-20240229": "anthropic/claude-3-sonnet",
-            "claude-3-opus-20240229": "anthropic/claude-3-opus",
-            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4"
+            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4", 
+            "anthropic/claude-sonnet-4.5": "anthropic/claude-sonnet-4.5"
         }
-        return model_mapping.get(anthropic_model, "anthropic/claude-sonnet-4")
+        return model_mapping.get(anthropic_model, "anthropic/claude-sonnet-4.5")

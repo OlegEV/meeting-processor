@@ -12,7 +12,7 @@ from pathlib import Path
 import json
 import threading
 
-from .models import User, Job, DatabaseSchema, DatabaseValidator
+from .models import User, Job, ConfluencePublication, DatabaseSchema, DatabaseValidator
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +46,8 @@ class DatabaseManager:
             db_dir = Path(self.db_path).parent
             db_dir.mkdir(parents=True, exist_ok=True)
             
-            # Создаем таблицы
-            self._create_tables()
-            
-            # Создаем индексы
-            self._create_indexes()
+            # Выполняем миграции (они включают создание таблиц и индексов)
+            self._run_migrations()
             
             logger.info("База данных успешно инициализирована")
             
@@ -77,6 +74,52 @@ class DatabaseManager:
                 cursor.execute(sql)
             
             conn.commit()
+    
+    def _run_migrations(self):
+        """Выполняет миграции базы данных"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Создаем таблицу для отслеживания миграций если не существует
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Проверяем какие миграции уже применены
+                cursor.execute("SELECT version FROM schema_migrations ORDER BY version")
+                applied_migrations = {row[0] for row in cursor.fetchall()}
+                
+                # Список доступных миграций
+                available_migrations = [1, 2, 3]  # Базовые таблицы, индексы, Confluence
+                
+                # Применяем недостающие миграции
+                for version in available_migrations:
+                    if version not in applied_migrations:
+                        logger.info(f"Применение миграции версии {version}")
+                        
+                        migration_sqls = DatabaseSchema.get_migration_sql(version)
+                        for sql in migration_sqls:
+                            if sql.strip():  # Пропускаем пустые SQL
+                                cursor.execute(sql)
+                        
+                        # Отмечаем миграцию как примененную
+                        cursor.execute(
+                            "INSERT INTO schema_migrations (version) VALUES (?)",
+                            (version,)
+                        )
+                        
+                        logger.info(f"Миграция версии {version} успешно применена")
+                
+                conn.commit()
+                logger.info("Все миграции успешно применены")
+                
+        except Exception as e:
+            logger.error(f"Ошибка выполнения миграций: {e}")
+            raise
     
     def _get_connection(self) -> sqlite3.Connection:
         """Получает соединение с базой данных"""
@@ -518,6 +561,258 @@ class DatabaseManager:
                 
                 return deleted_count
     
+    # Методы для работы с публикациями Confluence
+    
+    def create_confluence_publication(self, publication_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Создает новую публикацию в Confluence
+        
+        Args:
+            publication_data: Данные публикации
+            
+        Returns:
+            Созданная публикация
+        """
+        if not DatabaseValidator.validate_confluence_publication_data(publication_data):
+            raise ValueError("Невалидные данные публикации Confluence")
+        
+        sanitized_data = DatabaseValidator.sanitize_confluence_publication_data(publication_data)
+        
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Создаем публикацию
+                columns = list(sanitized_data.keys())
+                placeholders = ', '.join(['?' for _ in columns])
+                values = [sanitized_data[col] for col in columns]
+                
+                sql = f"INSERT INTO confluence_publications ({', '.join(columns)}) VALUES ({placeholders})"
+                cursor.execute(sql, values)
+                conn.commit()
+                
+                publication_id = cursor.lastrowid
+                
+                logger.info(f"Создана публикация Confluence: {publication_id} для задачи {sanitized_data['job_id']}")
+                
+                # Возвращаем созданную публикацию
+                return self.get_confluence_publication_by_id(publication_id)
+    
+    def get_confluence_publication_by_id(self, publication_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Получает публикацию по ID
+        
+        Args:
+            publication_id: ID публикации
+            
+        Returns:
+            Данные публикации или None
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM confluence_publications WHERE id = ?", (publication_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                return dict(row)
+            return None
+    
+    def get_confluence_publications_by_job_id(self, job_id: str) -> List[Dict[str, Any]]:
+        """
+        Получает все публикации для задачи
+        
+        Args:
+            job_id: ID задачи
+            
+        Returns:
+            Список публикаций
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM confluence_publications WHERE job_id = ? ORDER BY created_at DESC",
+                (job_id,)
+            )
+            rows = cursor.fetchall()
+            
+            return [dict(row) for row in rows]
+    
+    def get_confluence_publications(self, job_id: str, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Получает публикации Confluence для задачи с проверкой доступа пользователя
+        
+        Args:
+            job_id: ID задачи
+            user_id: ID пользователя для проверки доступа
+            
+        Returns:
+            Список публикаций
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Проверяем, что задача принадлежит пользователю
+            cursor.execute("SELECT 1 FROM jobs WHERE job_id = ? AND user_id = ?", (job_id, user_id))
+            if not cursor.fetchone():
+                return []  # Нет доступа к задаче
+            
+            # Получаем публикации для задачи с маппингом полей для UI
+            cursor.execute(
+                """SELECT
+                    id,
+                    job_id,
+                    page_title,
+                    confluence_space_key as space_key,
+                    confluence_page_url as page_url,
+                    confluence_page_id as page_id,
+                    publication_status as status,
+                    error_message,
+                    created_at
+                FROM confluence_publications
+                WHERE job_id = ?
+                ORDER BY created_at DESC""",
+                (job_id,)
+            )
+            rows = cursor.fetchall()
+            
+            return [dict(row) for row in rows]
+    
+    def update_confluence_publication(self, publication_id: int,
+                                    publication_data: Dict[str, Any]) -> bool:
+        """
+        Обновляет публикацию
+        
+        Args:
+            publication_id: ID публикации
+            publication_data: Новые данные публикации
+            
+        Returns:
+            True если обновление успешно
+        """
+        # Убираем неизменяемые поля
+        update_data = publication_data.copy()
+        for field in ['id', 'job_id', 'created_at']:
+            update_data.pop(field, None)
+        
+        if not update_data:
+            return True  # Нечего обновлять
+        
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                columns = list(update_data.keys())
+                set_clause = ', '.join([f"{col} = ?" for col in columns])
+                values = [update_data[col] for col in columns] + [publication_id]
+                
+                sql = f"UPDATE confluence_publications SET {set_clause} WHERE id = ?"
+                cursor.execute(sql, values)
+                conn.commit()
+                
+                return cursor.rowcount > 0
+    
+    def delete_confluence_publication(self, publication_id: int) -> bool:
+        """
+        Удаляет публикацию
+        
+        Args:
+            publication_id: ID публикации
+            
+        Returns:
+            True если удаление успешно
+        """
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM confluence_publications WHERE id = ?", (publication_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+    
+    def get_confluence_publications_by_status(self, status: str,
+                                            limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Получает публикации по статусу
+        
+        Args:
+            status: Статус публикации
+            limit: Лимит записей
+            
+        Returns:
+            Список публикаций
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            sql = "SELECT * FROM confluence_publications WHERE publication_status = ? ORDER BY created_at DESC"
+            params = [status]
+            
+            if limit:
+                sql += " LIMIT ?"
+                params.append(limit)
+            
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+            
+            return [dict(row) for row in rows]
+    
+    def get_confluence_publications_statistics(self) -> Dict[str, Any]:
+        """
+        Получает статистику публикаций в Confluence
+        
+        Returns:
+            Статистика публикаций
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Общая статистика
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as total_publications,
+                    SUM(CASE WHEN publication_status = 'published' THEN 1 ELSE 0 END) as published_count,
+                    SUM(CASE WHEN publication_status = 'failed' THEN 1 ELSE 0 END) as failed_count,
+                    SUM(CASE WHEN publication_status = 'pending' THEN 1 ELSE 0 END) as pending_count,
+                    SUM(CASE WHEN publication_status = 'retrying' THEN 1 ELSE 0 END) as retrying_count,
+                    COUNT(DISTINCT confluence_space_key) as unique_spaces,
+                    AVG(retry_count) as avg_retry_count
+                FROM confluence_publications
+            """)
+            
+            overall_stats = dict(cursor.fetchone())
+            
+            # Статистика по пространствам
+            cursor.execute("""
+                SELECT
+                    confluence_space_key,
+                    COUNT(*) as publications_count,
+                    SUM(CASE WHEN publication_status = 'published' THEN 1 ELSE 0 END) as published_count
+                FROM confluence_publications
+                GROUP BY confluence_space_key
+                ORDER BY publications_count DESC
+            """)
+            
+            space_stats = [dict(row) for row in cursor.fetchall()]
+            
+            # Статистика по дням (последние 30 дней)
+            cursor.execute("""
+                SELECT
+                    DATE(created_at) as date,
+                    COUNT(*) as publications_count,
+                    SUM(CASE WHEN publication_status = 'published' THEN 1 ELSE 0 END) as published_count
+                FROM confluence_publications
+                WHERE created_at >= datetime('now', '-30 days')
+                GROUP BY DATE(created_at)
+                ORDER BY date DESC
+            """)
+            
+            daily_stats = [dict(row) for row in cursor.fetchall()]
+            
+            return {
+                'overall': overall_stats,
+                'by_space': space_stats,
+                'daily': daily_stats
+            }
+    
     # Утилиты
     
     def backup_database(self, backup_path: Optional[str] = None) -> str:
@@ -569,6 +864,61 @@ class DatabaseManager:
                 'jobs_count': jobs_count,
                 'backup_enabled': self.backup_enabled
             }
+    
+    def close(self):
+        """Закрывает соединения с базой данных"""
+        # В текущей реализации соединения создаются и закрываются автоматически
+        # Этот метод добавлен для совместимости с тестами
+        pass
+    
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """Получает всех пользователей"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    def get_all_jobs(self) -> List[Dict[str, Any]]:
+        """Получает все задачи"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM jobs ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    def get_all_confluence_publications(self) -> List[Dict[str, Any]]:
+        """Получает все публикации Confluence"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM confluence_publications ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    def get_job_confluence_publications(self, job_id: str) -> List[Dict[str, Any]]:
+        """Получает публикации Confluence для задачи"""
+        return self.get_confluence_publications_by_job_id(job_id)
+    
+    def update_job_status(self, job_id: str, status: str, progress: int, message: str = None):
+        """Обновляет статус задачи"""
+        update_data = {
+            'status': status,
+            'progress': progress
+        }
+        if message:
+            update_data['message'] = message
+        
+        return self.update_job(job_id, update_data)
+    
+    def update_confluence_publication_status(self, publication_id: int, status: str, page_url: str = None):
+        """Обновляет статус публикации Confluence"""
+        update_data = {
+            'publication_status': status
+        }
+        if page_url:
+            update_data['confluence_page_url'] = page_url
+        
+        return self.update_confluence_publication(publication_id, update_data)
 
 def create_database_manager(config: Dict[str, Any]) -> DatabaseManager:
     """

@@ -1,10 +1,10 @@
 {
   "default_template": "standard",
   "template_settings": {
-    "include_technical_info": true,
-    "include_file_datetime": true,
+    "include_technical_info": false,
+    "include_file_datetime": false,
     "language": "ru",
-    "max_tokens": 2000,
+    "max_tokens": 2600,
     "auto_detect_meeting_type": false
   },
   "custom_templates": {

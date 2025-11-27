@@ -45,8 +45,8 @@ def main():
         new_version = getattr(deepgram, '__version__', 'неизвестна')
         print(f"🎉 Новая версия: {new_version}")
         
-        # Тестируем импорт
-        from deepgram import DeepgramClient, PrerecordedOptions
+        # Тестируем импорт (в SDK v5 PrerecordedOptions и FileSource больше не используются)
+        from deepgram import DeepgramClient
         print("✅ Импорт успешен")
         
         return True

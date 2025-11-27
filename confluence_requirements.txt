@@ -1,0 +1,11 @@
+# Additional requirements for Confluence integration
+# Add these to your main requirements.txt file
+
+# HTTP requests and API communication
+requests>=2.31.0
+
+# Cryptography for secure token storage
+cryptography>=41.0.0
+
+# Additional utilities (if not already present)
+python-dateutil>=2.8.2

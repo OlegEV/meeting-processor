@@ -30,6 +30,15 @@ try:
     from web_templates import WebTemplates
     from auth import create_auth_system, require_auth, get_current_user_id, get_current_user, is_authenticated
     from database import create_database_manager
+    # Confluence модули (опциональные)
+    confluence_available = True
+    try:
+        from confluence_client import ConfluenceServerClient, ConfluenceConfig, ConfluencePublicationService
+        from confluence_encryption import create_token_manager
+    except ImportError as confluence_error:
+        confluence_available = False
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Confluence модули недоступны: {confluence_error}")
 except ImportError as e:
     print(f"❌ Ошибка импорта модулей: {e}")
     sys.exit(1)
@@ -138,6 +147,12 @@ class WorkingMeetingWebApp:
         # Связываем user_manager с db_manager
         self.user_manager.set_db_manager(self.db_manager)
         
+        # Инициализируем Confluence (если доступен и настроен)
+        self.confluence_client = None
+        self.confluence_service = None
+        self.token_manager = None
+        self._init_confluence()
+        
         # Настройки приложения
         self.setup_app_config()
         
@@ -198,6 +213,88 @@ class WorkingMeetingWebApp:
         self.app.teardown_appcontext(self.auth_teardown)
         
         logger.info("Middleware аутентификации настроен")
+    
+    def _init_confluence(self):
+        """Инициализирует Confluence интеграцию"""
+        try:
+            if not confluence_available:
+                logger.info("Confluence модули недоступны, пропускаем инициализацию")
+                return
+            
+            confluence_config = self.config.get('confluence', {})
+            if not confluence_config.get('enabled', False):
+                logger.info("Confluence интеграция отключена в конфигурации")
+                return
+            
+            # Проверяем обязательные настройки
+            required_settings = ['base_url', 'space_key']
+            missing_settings = [setting for setting in required_settings
+                              if not confluence_config.get(setting)]
+            
+            if missing_settings:
+                logger.warning(f"Confluence: отсутствуют обязательные настройки: {missing_settings}")
+                return
+            
+            # Инициализируем менеджер токенов
+            try:
+                self.token_manager = create_token_manager("confluence_tokens.json")
+                logger.info("Менеджер токенов Confluence инициализирован")
+            except Exception as e:
+                logger.error(f"Ошибка инициализации менеджера токенов: {e}")
+                return
+            
+            # Получаем токен API
+            api_token = None
+            if confluence_config.get('encrypted_token'):
+                try:
+                    # Пытаемся получить расшифрованный токен
+                    api_token = self.token_manager.get_token(
+                        confluence_config['username'],
+                        confluence_config.get('encryption_key', '')
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось расшифровать токен: {e}")
+            
+            if not api_token and confluence_config.get('api_token'):
+                api_token = confluence_config['api_token']
+            
+            if not api_token:
+                logger.warning("Confluence: API токен не найден")
+                return
+            
+            # Создаем конфигурацию Confluence
+            try:
+                config = ConfluenceConfig(
+                    base_url=confluence_config['base_url'],
+                    api_token=api_token,
+                    space_key=confluence_config['space_key'],
+                    username=confluence_config.get('username'),  # Опциональное поле для совместимости
+                    parent_page_id=confluence_config.get('parent_page_id'),
+                    timeout=confluence_config.get('timeout', 30),
+                    max_retries=confluence_config.get('max_retries', 3),
+                    retry_delay=confluence_config.get('retry_delay', 1.0)
+                )
+                
+                # Создаем клиент Confluence
+                self.confluence_client = ConfluenceServerClient(config)
+                
+                # Создаем сервис публикации
+                self.confluence_service = ConfluencePublicationService(
+                    self.confluence_client,
+                    self.db_manager
+                )
+                
+                logger.info("Confluence интеграция успешно инициализирована")
+                
+            except Exception as e:
+                logger.error(f"Ошибка создания Confluence клиента: {e}")
+                self.confluence_client = None
+                self.confluence_service = None
+        
+        except Exception as e:
+            logger.error(f"Ошибка инициализации Confluence: {e}")
+            self.confluence_client = None
+            self.confluence_service = None
     
     def allowed_file(self, filename: str) -> bool:
         """Проверяет, разрешен ли файл для загрузки"""
@@ -313,6 +410,272 @@ class WorkingMeetingWebApp:
             logger.error(f"Ошибка при работе с пользователем: {e}")
             return None
     
+    def extract_confluence_metadata(self, base_page_url: str, api_token: str = None, timeout: int = 30) -> Dict[str, Optional[str]]:
+        """
+        Универсальная функция для извлечения метаданных Confluence страницы
+        
+        Args:
+            base_page_url: URL страницы Confluence
+            api_token: API токен для аутентификации (опционально)
+            timeout: Таймаут для HTTP запросов
+            
+        Returns:
+            Dict с извлеченными метаданными:
+            {
+                'page_id': str | None,
+                'space_key': str | None,
+                'page_title': str | None,
+                'base_url': str | None,
+                'extraction_method': str  # Метод, которым были извлечены данные
+            }
+        """
+        import re
+        import requests
+        import json
+        from urllib.parse import urlparse, parse_qs
+        
+        result = {
+            'page_id': None,
+            'space_key': None,
+            'page_title': None,
+            'base_url': None,
+            'extraction_method': 'none'
+        }
+        
+        if not base_page_url:
+            logger.warning("🔍 extract_confluence_metadata: Пустой URL")
+            return result
+        
+        logger.info(f"🔍 extract_confluence_metadata: Анализ URL: {base_page_url}")
+        
+        try:
+            # Извлекаем базовый URL
+            parsed_url = urlparse(base_page_url)
+            result['base_url'] = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            
+            # 1. Попытка извлечения из URL паттернов
+            logger.info("🔍 Попытка 1: Извлечение из URL паттернов")
+            
+            # Confluence Server формат 1: /pages/viewpage.action?pageId=123456
+            server_pattern1 = r'/pages/viewpage\.action\?pageId=(\d+)'
+            match = re.search(server_pattern1, base_page_url)
+            if match:
+                result['page_id'] = match.group(1)
+                result['extraction_method'] = 'url_viewpage'
+                logger.info(f"🔍 Найден page_id из viewpage URL: {result['page_id']}")
+            
+            # Confluence Server формат 2: /display/SPACE/PAGE
+            server_pattern2 = r'/display/([^/]+)/(.+?)(?:\?|$)'
+            match = re.search(server_pattern2, base_page_url)
+            if match:
+                result['space_key'] = match.group(1)
+                page_slug = match.group(2)
+                result['extraction_method'] = 'url_display'
+                logger.info(f"🔍 Найден space_key из display URL: {result['space_key']}")
+                logger.info(f"🔍 Найден page slug: {page_slug}")
+            
+            # Confluence Cloud формат: /wiki/spaces/SPACE/pages/123456/PAGE
+            cloud_pattern = r'/wiki/spaces/([^/]+)/pages/(\d+)/(.+?)(?:\?|$)'
+            match = re.search(cloud_pattern, base_page_url)
+            if match:
+                result['space_key'] = match.group(1)
+                result['page_id'] = match.group(2)
+                page_slug = match.group(3)
+                result['extraction_method'] = 'url_cloud'
+                logger.info(f"🔍 Найден space_key из cloud URL: {result['space_key']}")
+                logger.info(f"🔍 Найден page_id из cloud URL: {result['page_id']}")
+                logger.info(f"🔍 Найден page slug: {page_slug}")
+            
+            # 2. Попытка извлечения из HTML метаданных страницы
+            if not result['page_id'] or not result['space_key']:
+                logger.info("🔍 Попытка 2: Извлечение из HTML метаданных")
+                
+                try:
+                    session = requests.Session()
+                    headers = {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                    
+                    if api_token:
+                        headers['Authorization'] = f'Bearer {api_token}'
+                    
+                    session.headers.update(headers)
+                    
+                    response = session.get(base_page_url, timeout=timeout)
+                    if response.status_code == 200:
+                        html_content = response.text
+                        
+                        # Паттерны для поиска page ID в HTML
+                        page_id_patterns = [
+                            r'name="ajs-page-id"\s+content="(\d+)"',  # Confluence Server
+                            r'content="(\d+)"\s+name="ajs-page-id"',  # Обратный порядок
+                            r'"pageId":"(\d+)"',                      # JSON в скриптах
+                            r'"pageId":(\d+)',                        # JSON без кавычек
+                            r'pageId["\']?\s*[:=]\s*["\']?(\d+)',     # Различные форматы присваивания
+                            r'data-page-id="(\d+)"',                 # Data атрибуты
+                            r'pageId=(\d+)',                          # URL параметры в скриптах
+                            r'page-id["\']?\s*[:=]\s*["\']?(\d+)',    # Альтернативные названия
+                        ]
+                        
+                        # Паттерны для поиска space key в HTML
+                        space_key_patterns = [
+                            r'name="ajs-space-key"\s+content="([^"]+)"',  # Confluence Server
+                            r'content="([^"]+)"\s+name="ajs-space-key"',  # Обратный порядок
+                            r'"spaceKey":"([^"]+)"',                      # JSON в скриптах
+                            r'"spaceKey":([^,}\]]+)',                     # JSON без кавычек
+                            r'spaceKey["\']?\s*[:=]\s*["\']?([^"\'}\],\s]+)', # Различные форматы
+                            r'data-space-key="([^"]+)"',                 # Data атрибуты
+                            r'space-key["\']?\s*[:=]\s*["\']?([^"\'}\],\s]+)', # Альтернативные названия
+                        ]
+                        
+                        # Паттерны для поиска заголовка страницы
+                        title_patterns = [
+                            r'<title>([^<]+)</title>',                    # HTML title
+                            r'name="ajs-page-title"\s+content="([^"]+)"', # Confluence meta
+                            r'content="([^"]+)"\s+name="ajs-page-title"', # Обратный порядок
+                            r'"pageTitle":"([^"]+)"',                     # JSON в скриптах
+                            r'data-page-title="([^"]+)"',                # Data атрибуты
+                        ]
+                        
+                        # Извлекаем page ID
+                        if not result['page_id']:
+                            for pattern in page_id_patterns:
+                                match = re.search(pattern, html_content, re.IGNORECASE)
+                                if match:
+                                    result['page_id'] = match.group(1)
+                                    result['extraction_method'] = 'html_metadata'
+                                    logger.info(f"🔍 Найден page_id из HTML: {result['page_id']} (паттерн: {pattern})")
+                                    break
+                        
+                        # Извлекаем space key
+                        if not result['space_key']:
+                            for pattern in space_key_patterns:
+                                match = re.search(pattern, html_content, re.IGNORECASE)
+                                if match:
+                                    space_key_candidate = match.group(1).strip('"\'')
+                                    # Проверяем, что это валидный space key (не содержит пробелов и спецсимволов)
+                                    if re.match(r'^[A-Z0-9_~-]+$', space_key_candidate, re.IGNORECASE):
+                                        result['space_key'] = space_key_candidate
+                                        result['extraction_method'] = 'html_metadata'
+                                        logger.info(f"🔍 Найден space_key из HTML: {result['space_key']} (паттерн: {pattern})")
+                                        break
+                        
+                        # Извлекаем заголовок страницы
+                        if not result['page_title']:
+                            for pattern in title_patterns:
+                                match = re.search(pattern, html_content, re.IGNORECASE)
+                                if match:
+                                    title_candidate = match.group(1).strip()
+                                    # Очищаем заголовок от лишних частей (например, "- Confluence")
+                                    title_candidate = re.sub(r'\s*-\s*Confluence.*$', '', title_candidate)
+                                    if title_candidate and len(title_candidate) > 0:
+                                        result['page_title'] = title_candidate
+                                        logger.info(f"🔍 Найден page_title из HTML: {result['page_title']} (паттерн: {pattern})")
+                                        break
+                        
+                        # 3. Попытка извлечения из JSON-LD данных
+                        if not result['page_id'] or not result['space_key']:
+                            logger.info("🔍 Попытка 3: Извлечение из JSON-LD данных")
+                            
+                            # Ищем JSON-LD блоки
+                            json_ld_pattern = r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>'
+                            json_ld_matches = re.findall(json_ld_pattern, html_content, re.DOTALL | re.IGNORECASE)
+                            
+                            for json_ld_content in json_ld_matches:
+                                try:
+                                    json_data = json.loads(json_ld_content.strip())
+                                    
+                                    # Ищем данные в JSON-LD структуре
+                                    if isinstance(json_data, dict):
+                                        # Проверяем различные поля
+                                        if 'identifier' in json_data and not result['page_id']:
+                                            identifier = str(json_data['identifier'])
+                                            if identifier.isdigit():
+                                                result['page_id'] = identifier
+                                                result['extraction_method'] = 'json_ld'
+                                                logger.info(f"🔍 Найден page_id из JSON-LD: {result['page_id']}")
+                                        
+                                        if 'name' in json_data and not result['page_title']:
+                                            result['page_title'] = str(json_data['name'])
+                                            logger.info(f"🔍 Найден page_title из JSON-LD: {result['page_title']}")
+                                        
+                                        # Ищем space key в различных полях
+                                        for field in ['spaceKey', 'space', 'category']:
+                                            if field in json_data and not result['space_key']:
+                                                space_candidate = str(json_data[field])
+                                                if re.match(r'^[A-Z0-9_~-]+$', space_candidate, re.IGNORECASE):
+                                                    result['space_key'] = space_candidate
+                                                    result['extraction_method'] = 'json_ld'
+                                                    logger.info(f"🔍 Найден space_key из JSON-LD: {result['space_key']}")
+                                                    break
+                                
+                                except json.JSONDecodeError:
+                                    continue
+                        
+                        # 4. Попытка извлечения из JavaScript переменных
+                        if not result['page_id'] or not result['space_key']:
+                            logger.info("🔍 Попытка 4: Извлечение из JavaScript переменных")
+                            
+                            # Ищем JavaScript объекты с данными
+                            js_patterns = [
+                                r'AJS\.params\s*=\s*({[^}]+})',
+                                r'window\.confluenceData\s*=\s*({[^}]+})',
+                                r'var\s+pageData\s*=\s*({[^}]+})',
+                                r'window\.pageData\s*=\s*({[^}]+})',
+                            ]
+                            
+                            for js_pattern in js_patterns:
+                                matches = re.findall(js_pattern, html_content, re.IGNORECASE)
+                                for match in matches:
+                                    try:
+                                        # Пытаемся извлечь данные из JavaScript объекта
+                                        js_data = match
+                                        
+                                        # Ищем pageId
+                                        if not result['page_id']:
+                                            page_id_match = re.search(r'["\']?pageId["\']?\s*:\s*["\']?(\d+)', js_data)
+                                            if page_id_match:
+                                                result['page_id'] = page_id_match.group(1)
+                                                result['extraction_method'] = 'javascript'
+                                                logger.info(f"🔍 Найден page_id из JavaScript: {result['page_id']}")
+                                        
+                                        # Ищем spaceKey
+                                        if not result['space_key']:
+                                            space_key_match = re.search(r'["\']?spaceKey["\']?\s*:\s*["\']([^"\']+)', js_data)
+                                            if space_key_match:
+                                                space_candidate = space_key_match.group(1)
+                                                if re.match(r'^[A-Z0-9_~-]+$', space_candidate, re.IGNORECASE):
+                                                    result['space_key'] = space_candidate
+                                                    result['extraction_method'] = 'javascript'
+                                                    logger.info(f"🔍 Найден space_key из JavaScript: {result['space_key']}")
+                                    
+                                    except Exception:
+                                        continue
+                    
+                    else:
+                        logger.warning(f"🔍 HTTP {response.status_code} при доступе к {base_page_url}")
+                
+                except requests.RequestException as e:
+                    logger.warning(f"🔍 Ошибка HTTP запроса к {base_page_url}: {e}")
+                except Exception as e:
+                    logger.warning(f"🔍 Ошибка извлечения метаданных из HTML: {e}")
+            
+            # Логируем итоговый результат
+            logger.info(f"🔍 Результат извлечения метаданных:")
+            logger.info(f"   page_id: {result['page_id']}")
+            logger.info(f"   space_key: {result['space_key']}")
+            logger.info(f"   page_title: {result['page_title']}")
+            logger.info(f"   base_url: {result['base_url']}")
+            logger.info(f"   extraction_method: {result['extraction_method']}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"🔍 Ошибка в extract_confluence_metadata: {e}")
+            result['extraction_method'] = 'error'
+            return result
+    
     def setup_routes(self):
         """Настраивает маршруты приложения"""
         
@@ -335,6 +698,11 @@ class WorkingMeetingWebApp:
                     'auth': {
                         'enabled': True,
                         'token_header': self.config.get('auth', {}).get('token_header', 'X-Identity-Token')
+                    },
+                    'confluence': {
+                        'available': confluence_available,
+                        'enabled': self.config.get('confluence', {}).get('enabled', False),
+                        'configured': self.confluence_client is not None
                     }
                 })
             except Exception as e:
@@ -703,7 +1071,7 @@ class WorkingMeetingWebApp:
             """Просмотр конкретного документа"""
             docs_map = {
                 'guidelines': 'meeting_recording_guidelines.md',
-                'checklist': 'quick_meeting_checklist.md', 
+                'checklist': 'quick_meeting_checklist.md',
                 'setup': 'recording_setup_guide.md'
             }
             
@@ -737,6 +1105,267 @@ class WorkingMeetingWebApp:
                 logger.error(f"❌ Ошибка чтения документации: {e}")
                 flash(f'Ошибка чтения документации: {str(e)}', 'error')
                 return redirect(url_for('docs_index'))
+        
+        @self.app.route('/publish_confluence/<job_id>', methods=['POST'])
+        @require_auth()
+        def publish_confluence(job_id: str):
+            """Публикация протокола в Confluence"""
+            try:
+                # Проверяем существование задачи и права доступа
+                job = self.get_job_status(job_id)
+                if not job:
+                    return jsonify({'success': False, 'error': 'Задача не найдена или у вас нет доступа к ней'}), 404
+                
+                if job['status'] != 'completed':
+                    return jsonify({'success': False, 'error': 'Обработка еще не завершена'}), 400
+                
+                # Получаем данные формы
+                base_page_url = request.form.get('base_page_url', '').strip()
+                page_title = request.form.get('page_title', '').strip()
+                
+                logger.info(f"🔍 DEBUG: Confluence publication form data:")
+                logger.info(f"   base_page_url: {base_page_url}")
+                logger.info(f"   page_title: {page_title}")
+                
+                if not base_page_url:
+                    return jsonify({'success': False, 'error': 'URL базовой страницы обязателен'}), 400
+                
+                # Получаем настройки Confluence из конфигурации (нужно для поиска страниц)
+                confluence_config = self.config.get('confluence', {})
+                if not confluence_config:
+                    return jsonify({'success': False, 'error': 'Confluence не настроен в конфигурации'}), 500
+                
+                # Валидация URL - поддерживаем только Confluence Server форматы
+                import re
+                
+                # Confluence Server формат 1: https://wiki.domain.com/pages/viewpage.action?pageId=123456
+                server_pattern1 = r'^https?://[^/]+/pages/viewpage\.action\?pageId=\d+'
+                
+                # Confluence Server формат 2: https://wiki.domain.com/display/SPACE/PAGE
+                server_pattern2 = r'^https?://[^/]+/display/[^/]+/[^/]+'
+                
+                is_server1 = re.match(server_pattern1, base_page_url)
+                is_server2 = re.match(server_pattern2, base_page_url)
+                
+                if not (is_server1 or is_server2):
+                    return jsonify({
+                        'success': False,
+                        'error': 'Неверный формат URL Confluence Server. Поддерживаются форматы:\n' +
+                                '• Server: https://wiki.domain.com/pages/viewpage.action?pageId=123456\n' +
+                                '• Server: https://wiki.domain.com/display/SPACE/PAGE'
+                    }), 400
+                
+                # Инициализируем parent_page_id сразу
+                parent_page_id = None
+                
+                # Используем новую улучшенную функцию извлечения метаданных
+                logger.info(f"🔍 DEBUG: Извлечение метаданных из URL: {base_page_url}")
+                
+                # Получаем API токен для аутентификации
+                api_token = confluence_config.get('api_token', '')
+                
+                # Извлекаем метаданные с помощью улучшенной функции
+                metadata = self.extract_confluence_metadata(base_page_url, api_token, timeout=30)
+                
+                # Используем извлеченные данные
+                extracted_page_id = metadata.get('page_id')
+                extracted_space_key = metadata.get('space_key')
+                extracted_page_title = metadata.get('page_title')
+                
+                # Используем space_key только из автоматического извлечения
+                space_key = extracted_space_key
+                if space_key:
+                    logger.info(f"🔍 DEBUG: Используем space_key из метаданных: {space_key}")
+                else:
+                    logger.warning(f"🔍 DEBUG: space_key не удалось извлечь из метаданных")
+                
+                # Используем извлеченный page_id как parent_page_id
+                parent_page_id = extracted_page_id
+                
+                # Проверяем наличие файла протокола
+                summary_file = job.get('summary_file')
+                if not summary_file or not os.path.exists(summary_file):
+                    return jsonify({'success': False, 'error': 'Файл протокола не найден'}), 404
+                
+                # Читаем содержимое протокола
+                with open(summary_file, 'r', encoding='utf-8') as f:
+                    protocol_content = f.read()
+                
+                # ИСПРАВЛЕНИЕ: Автогенерация заголовка ВСЕГДА происходит первой (если заголовок не указан пользователем)
+                if not page_title:
+                    from confluence_client import ConfluenceContentProcessor
+                    processor = ConfluenceContentProcessor()
+                    
+                    # Извлекаем информацию о встрече из протокола
+                    meeting_date, meeting_topic = processor.extract_meeting_info(protocol_content)
+                    
+                    # Генерируем заголовок по правильному шаблону YYYYMMDD - <тема встречи>
+                    page_title = processor.generate_page_title(
+                        meeting_date,
+                        meeting_topic,
+                        job.get('filename')
+                    )
+                    logger.info(f"🔍 DEBUG: Автогенерированный заголовок: {page_title}")
+                
+                # Fallback: Если автогенерация не сработала и есть заголовок из метаданных, используем его
+                if not page_title and extracted_page_title:
+                    page_title = extracted_page_title
+                    logger.info(f"🔍 DEBUG: Fallback - используем заголовок из метаданных: {page_title}")
+                
+                logger.info(f"🔍 DEBUG: Итоговые данные:")
+                logger.info(f"   parent_page_id: {parent_page_id}")
+                logger.info(f"   space_key: {space_key}")
+                logger.info(f"   page_title: {page_title}")
+                logger.info(f"   extraction_method: {metadata.get('extraction_method')}")
+                
+                # Импортируем и инициализируем Confluence клиент
+                try:
+                    from confluence_client import ConfluenceServerClient, ConfluenceConfig
+                    
+                    # Получаем настройки Confluence из конфигурации
+                    confluence_config = self.config.get('confluence', {})
+                    if not confluence_config:
+                        return jsonify({'success': False, 'error': 'Confluence не настроен в конфигурации'}), 500
+                    
+                    # Создаем конфигурацию
+                    config = ConfluenceConfig(
+                        base_url=confluence_config['base_url'],
+                        api_token=confluence_config.get('api_token', ''),
+                        space_key=space_key,
+                        username=confluence_config.get('username'),  # Опциональное поле для совместимости
+                        timeout=confluence_config.get('timeout', 30),
+                        max_retries=confluence_config.get('max_retries', 3),
+                        retry_delay=confluence_config.get('retry_delay', 1.0)
+                    )
+                    
+                    confluence_client = ConfluenceServerClient(config)
+                    
+                    # Конвертируем markdown в Confluence Storage Format
+                    from confluence_client import ConfluenceContentProcessor
+                    processor = ConfluenceContentProcessor()
+                    confluence_content = processor.markdown_to_confluence(protocol_content)
+                    
+                    # Создаем страницу в Confluence
+                    page_info = confluence_client.create_page(
+                        title=page_title,
+                        content=confluence_content,
+                        parent_page_id=parent_page_id,
+                        space_key=space_key
+                    )
+                    
+                    logger.info(f"🔍 DEBUG: Created Confluence page with parent_page_id: {parent_page_id}")
+                    
+                    # Строим правильный URL страницы для Confluence Server
+                    page_url = f"{confluence_config['base_url'].rstrip('/')}/pages/viewpage.action?pageId={page_info['id']}"
+                    
+                    # Сохраняем информацию о публикации в базе данных
+                    user_id = get_current_user_id()
+                    publication_data = {
+                        'job_id': job_id,
+                        'confluence_page_id': page_info['id'],
+                        'confluence_page_url': page_url,
+                        'confluence_space_key': space_key,
+                        'page_title': page_title,
+                        'publication_status': 'published'
+                    }
+                    
+                    try:
+                        self.db_manager.create_confluence_publication(publication_data)
+                        logger.info(f"Информация о публикации сохранена в БД: {page_info['id']}")
+                    except Exception as db_error:
+                        logger.warning(f"Не удалось сохранить информацию о публикации в БД: {db_error}")
+                    
+                    # Проверяем, это AJAX запрос или обычный
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                        # AJAX запрос - возвращаем JSON
+                        return jsonify({
+                            'success': True,
+                            'message': 'Протокол успешно опубликован в Confluence!',
+                            'page_url': page_url,
+                            'page_id': page_info['id']
+                        })
+                    else:
+                        # Обычный запрос - используем flash и redirect на страницу статуса
+                        flash(f'Протокол успешно опубликован в Confluence! <a href="{page_url}" target="_blank">Открыть страницу</a>', 'success')
+                        return redirect(url_for('status', job_id=job_id))
+                        
+                except ImportError:
+                    return jsonify({'success': False, 'error': 'Модуль Confluence не найден'}), 500
+                except Exception as confluence_error:
+                    logger.error(f"Ошибка Confluence клиента: {confluence_error}")
+                    
+                    # Сохраняем информацию об ошибке
+                    user_id = get_current_user_id()
+                    publication_data = {
+                        'job_id': job_id,
+                        'confluence_page_id': '',  # Пустой ID при ошибке
+                        'confluence_page_url': base_page_url,  # Используем исходный URL
+                        'confluence_space_key': space_key,
+                        'page_title': page_title,
+                        'publication_status': 'failed',
+                        'error_message': str(confluence_error)
+                    }
+                    
+                    try:
+                        self.db_manager.create_confluence_publication(publication_data)
+                        logger.info(f"Информация об ошибке публикации сохранена в БД")
+                    except Exception as db_error:
+                        logger.warning(f"Не удалось сохранить информацию об ошибке в БД: {db_error}")
+                    
+                    # Проверяем, это AJAX запрос или обычный
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                        # AJAX запрос - возвращаем JSON
+                        return jsonify({
+                            'success': False,
+                            'error': f'Ошибка публикации в Confluence: {str(confluence_error)}'
+                        })
+                    else:
+                        # Обычный запрос - используем flash и redirect на страницу статуса
+                        flash(f'Ошибка публикации в Confluence: {str(confluence_error)}', 'error')
+                        return redirect(url_for('status', job_id=job_id))
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка публикации в Confluence: {e}")
+                
+                # Проверяем, это AJAX запрос или обычный
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    # AJAX запрос - возвращаем JSON
+                    return jsonify({
+                        'success': False,
+                        'error': f'Внутренняя ошибка сервера: {str(e)}'
+                    })
+                else:
+                    # Обычный запрос - используем flash и redirect на страницу статуса
+                    flash(f'Внутренняя ошибка сервера: {str(e)}', 'error')
+                    return redirect(url_for('status', job_id=job_id))
+        
+        @self.app.route('/confluence_publications/<job_id>')
+        @require_auth()
+        def confluence_publications(job_id: str):
+            """Получение истории публикаций Confluence для задачи"""
+            try:
+                # Проверяем существование задачи и права доступа
+                job = self.get_job_status(job_id)
+                if not job:
+                    return jsonify({'error': 'Задача не найдена или у вас нет доступа к ней'}), 404
+                
+                # Получаем историю публикаций из базы данных
+                user_id = get_current_user_id()
+                publications = self.db_manager.get_confluence_publications(job_id, user_id)
+                
+                logger.info(f"🔍 DEBUG: Publication history request for job {job_id}, user {user_id}")
+                logger.info(f"🔍 DEBUG: Found {len(publications)} publications")
+                for i, pub in enumerate(publications):
+                    logger.info(f"🔍 DEBUG: Publication {i+1}: {pub}")
+                
+                return jsonify({
+                    'publications': publications,
+                    'count': len(publications)
+                })
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения истории публикаций: {e}")
+                return jsonify({'error': f'Ошибка получения истории: {str(e)}'}), 500
         
         @self.app.errorhandler(RequestEntityTooLarge)
         def handle_file_too_large(e):
@@ -806,7 +1435,9 @@ class WorkingMeetingWebApp:
                 claude_model=self.processing_settings.get('claude_model', 'claude-sonnet-4-20250514'),
                 chunk_duration_minutes=self.processing_settings.get('chunk_duration_minutes', 15),
                 template_type=job['template'],
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                deepgram_language=self.processing_settings.get('language', 'ru'),
+                deepgram_model=self.processing_settings.get('deepgram_model', 'nova-2')
             )
             
             # Основная обработка
