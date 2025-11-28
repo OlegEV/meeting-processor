@@ -409,12 +409,16 @@ class DatabaseManager:
     
     # Статистика и аналитика
     
-    def get_usage_statistics(self, days_back: int = 30) -> Dict[str, Any]:
+    def get_usage_statistics(self, days_back: Optional[int] = None,
+                            start_date: Optional[str] = None,
+                            end_date: Optional[str] = None) -> Dict[str, Any]:
         """
         Получает статистику использования приложения
         
         Args:
-            days_back: Количество дней назад для анализа
+            days_back: Количество дней назад для анализа (для обратной совместимости)
+            start_date: Дата начала периода в формате ISO (YYYY-MM-DD)
+            end_date: Дата окончания периода в формате ISO (YYYY-MM-DD)
             
         Returns:
             Статистика использования
@@ -422,36 +426,57 @@ class DatabaseManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
+            # Определяем диапазон дат
+            if start_date and end_date:
+                # Используем указанный диапазон дат
+                date_filter = "created_at >= ? AND created_at < datetime(?, '+1 day')"
+                date_filter_with_prefix = "j.created_at >= ? AND j.created_at < datetime(?, '+1 day')"
+                date_params = (start_date, end_date)
+                period_info = f"{start_date} - {end_date}"
+            elif days_back:
+                # Используем days_back для обратной совместимости
+                date_filter = "created_at >= datetime('now', '-{} days')".format(days_back)
+                date_filter_with_prefix = "j.created_at >= datetime('now', '-{} days')".format(days_back)
+                date_params = ()
+                period_info = f"{days_back} days"
+            else:
+                # По умолчанию 30 дней
+                days_back = 30
+                date_filter = "created_at >= datetime('now', '-30 days')"
+                date_filter_with_prefix = "j.created_at >= datetime('now', '-30 days')"
+                date_params = ()
+                period_info = "30 days"
+            
             # Общая статистика
-            cursor.execute("""
+            query = f"""
                 SELECT
                     COUNT(*) as total_protocols,
                     COUNT(DISTINCT user_id) as unique_users,
                     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_protocols,
                     SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failed_protocols
                 FROM jobs
-                WHERE created_at >= datetime('now', '-{} days')
-            """.format(days_back))
-            
+                WHERE {date_filter}
+            """
+            cursor.execute(query, date_params)
             overall_stats = dict(cursor.fetchone())
             
             # Статистика по дням
-            cursor.execute("""
+            query = f"""
                 SELECT
                     DATE(created_at) as date,
                     COUNT(*) as protocols_count,
                     COUNT(DISTINCT user_id) as users_count,
                     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count
                 FROM jobs
-                WHERE created_at >= datetime('now', '-{} days')
+                WHERE {date_filter}
                 GROUP BY DATE(created_at)
                 ORDER BY date DESC
-            """.format(days_back))
-            
+            """
+            cursor.execute(query, date_params)
             daily_stats = [dict(row) for row in cursor.fetchall()]
             
             # Статистика по пользователям
-            cursor.execute("""
+            query = f"""
                 SELECT
                     j.user_id,
                     u.name,
@@ -461,25 +486,25 @@ class DatabaseManager:
                     MAX(j.created_at) as last_activity
                 FROM jobs j
                 LEFT JOIN users u ON j.user_id = u.user_id
-                WHERE j.created_at >= datetime('now', '-{} days')
+                WHERE {date_filter_with_prefix}
                 GROUP BY j.user_id, u.name, u.email
                 ORDER BY protocols_count DESC
-            """.format(days_back))
-            
+            """
+            cursor.execute(query, date_params)
             user_stats = [dict(row) for row in cursor.fetchall()]
             
             # Статистика по шаблонам
-            cursor.execute("""
+            query = f"""
                 SELECT
                     template,
                     COUNT(*) as usage_count,
                     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count
                 FROM jobs
-                WHERE created_at >= datetime('now', '-{} days')
+                WHERE {date_filter}
                 GROUP BY template
                 ORDER BY usage_count DESC
-            """.format(days_back))
-            
+            """
+            cursor.execute(query, date_params)
             template_stats = [dict(row) for row in cursor.fetchall()]
             
             return {
@@ -487,7 +512,10 @@ class DatabaseManager:
                 'daily': daily_stats,
                 'users': user_stats,
                 'templates': template_stats,
-                'period_days': days_back
+                'period_days': days_back,
+                'start_date': start_date,
+                'end_date': end_date,
+                'period_info': period_info
             }
     
     def get_user_job_stats(self, user_id: str) -> Dict[str, Any]:

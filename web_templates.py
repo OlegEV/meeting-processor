@@ -857,9 +857,40 @@ class WebTemplates:
                             <a href="/statistics?days=365" class="btn btn-outline-light btn-sm {% if days_back == 365 %}active{% endif %}">1 год</a>
                         </div>
                     </div>
+                    
+                    <!-- Фильтр по датам -->
+                    <div class="card-body border-bottom bg-light">
+                        <form id="dateRangeForm" method="GET" action="/statistics" class="row g-3 align-items-end">
+                            <div class="col-md-3">
+                                <label for="startDate" class="form-label">
+                                    <i class="fas fa-calendar-alt me-1"></i>Дата начала периода
+                                </label>
+                                <input type="date" class="form-control" id="startDate" name="start_date"
+                                       value="{{ start_date or '' }}">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="endDate" class="form-label">
+                                    <i class="fas fa-calendar-alt me-1"></i>Дата окончания периода
+                                </label>
+                                <input type="date" class="form-control" id="endDate" name="end_date"
+                                       value="{{ end_date or '' }}">
+                            </div>
+                            <div class="col-md-3">
+                                <button type="button" id="applyDates" class="btn btn-primary w-100">
+                                    <i class="fas fa-filter me-1"></i>Применить фильтр
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    
                     <div class="card-body">
                         <p class="text-muted mb-0">
-                            <i class="fas fa-calendar me-1"></i>Период: последние {{ days_back }} дней
+                            <i class="fas fa-calendar me-1"></i>Период:
+                            {% if start_date and end_date %}
+                                с {{ start_date }} по {{ end_date }} ({{ days_back }} дней)
+                            {% else %}
+                                последние {{ days_back }} дней
+                            {% endif %}
                         </p>
                     </div>
                 </div>
@@ -1062,6 +1093,126 @@ class WebTemplates:
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Функции для работы с фильтром дат
+        document.addEventListener('DOMContentLoaded', function() {
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
+            const applyButton = document.getElementById('applyDates');
+            const dateForm = document.getElementById('dateRangeForm');
+            const dayButtons = document.querySelectorAll('.btn-group a');
+            
+            // Функция валидации дат
+            function validateDates() {
+                const startDate = startDateInput.value;
+                const endDate = endDateInput.value;
+                
+                if (!startDate || !endDate) {
+                    return { valid: false, message: 'Выберите обе даты' };
+                }
+                
+                if (new Date(startDate) > new Date(endDate)) {
+                    return { valid: false, message: 'Дата начала не может быть позже даты окончания' };
+                }
+                
+                return { valid: true };
+            }
+            
+            // Функция применения фильтра
+            function applyDateFilter() {
+                const validation = validateDates();
+                
+                if (!validation.valid) {
+                    alert(validation.message);
+                    return;
+                }
+                
+                const startDate = startDateInput.value;
+                const endDate = endDateInput.value;
+                
+                // Перенаправляем с параметрами дат
+                window.location.href = `/statistics?start_date=${startDate}&end_date=${endDate}`;
+            }
+            
+            // Обработчик кнопки "Применить фильтр"
+            applyButton.addEventListener('click', applyDateFilter);
+            
+            // Автоматическая отправка при выборе обеих дат
+            function checkAutoSubmit() {
+                if (startDateInput.value && endDateInput.value) {
+                    const validation = validateDates();
+                    if (validation.valid) {
+                        // Небольшая задержка для лучшего UX
+                        setTimeout(applyDateFilter, 300);
+                    }
+                }
+            }
+            
+            startDateInput.addEventListener('change', checkAutoSubmit);
+            endDateInput.addEventListener('change', checkAutoSubmit);
+            
+            // Обработчики для кнопок периодов
+            dayButtons.forEach(button => {
+                button.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // Получаем количество дней из URL
+                    const url = new URL(this.href);
+                    const days = parseInt(url.searchParams.get('days'));
+                    
+                    if (days) {
+                        // Вычисляем даты
+                        const endDate = new Date();
+                        const startDate = new Date();
+                        startDate.setDate(endDate.getDate() - days + 1);
+                        
+                        // Форматируем даты в YYYY-MM-DD
+                        const formatDate = (date) => {
+                            const year = date.getFullYear();
+                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                            const day = String(date.getDate()).padStart(2, '0');
+                            return `${year}-${month}-${day}`;
+                        };
+                        
+                        // Устанавливаем значения в поля
+                        startDateInput.value = formatDate(startDate);
+                        endDateInput.value = formatDate(endDate);
+                        
+                        // Автоматически применяем фильтр
+                        applyDateFilter();
+                    }
+                });
+            });
+            
+            // Визуальная индикация валидности
+            startDateInput.addEventListener('input', function() {
+                if (endDateInput.value) {
+                    const validation = validateDates();
+                    if (!validation.valid) {
+                        startDateInput.classList.add('is-invalid');
+                        endDateInput.classList.add('is-invalid');
+                    } else {
+                        startDateInput.classList.remove('is-invalid');
+                        endDateInput.classList.remove('is-invalid');
+                    }
+                }
+            });
+            
+            endDateInput.addEventListener('input', function() {
+                if (startDateInput.value) {
+                    const validation = validateDates();
+                    if (!validation.valid) {
+                        startDateInput.classList.add('is-invalid');
+                        endDateInput.classList.add('is-invalid');
+                    } else {
+                        startDateInput.classList.remove('is-invalid');
+                        endDateInput.classList.remove('is-invalid');
+                    }
+                }
+            });
+        });
+    </script>
     
     {% if stats.daily %}
     <script>

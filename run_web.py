@@ -1040,20 +1040,64 @@ class WorkingMeetingWebApp:
         def statistics():
             """Страница статистики использования приложения"""
             try:
-                # Получаем параметр периода (по умолчанию 30 дней)
-                days_back = request.args.get('days', 30, type=int)
-                if days_back < 1:
-                    days_back = 30
-                elif days_back > 365:
-                    days_back = 365
+                # Получаем параметры из query string
+                days_back = request.args.get('days', type=int)
+                start_date = request.args.get('start_date', type=str)
+                end_date = request.args.get('end_date', type=str)
                 
-                # Получаем статистику из базы данных
-                stats = self.db_manager.get_usage_statistics(days_back)
+                # Валидация и обработка параметров
+                if start_date and end_date:
+                    # Используем диапазон дат
+                    # Даты приходят в формате YYYY-MM-DD из HTML5 date input
+                    try:
+                        # Проверяем формат дат
+                        from datetime import datetime
+                        datetime.fromisoformat(start_date)
+                        datetime.fromisoformat(end_date)
+                        
+                        # Получаем статистику с диапазоном дат
+                        stats = self.db_manager.get_usage_statistics(
+                            start_date=start_date,
+                            end_date=end_date
+                        )
+                        
+                        # Вычисляем количество дней для отображения
+                        start_dt = datetime.fromisoformat(start_date)
+                        end_dt = datetime.fromisoformat(end_date)
+                        days_back = (end_dt - start_dt).days + 1
+                        
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Неверный формат дат: {e}")
+                        # Fallback на 30 дней
+                        days_back = 30
+                        start_date = None
+                        end_date = None
+                        stats = self.db_manager.get_usage_statistics(days_back=days_back)
+                
+                elif days_back:
+                    # Используем параметр days для обратной совместимости
+                    if days_back < 1:
+                        days_back = 30
+                    elif days_back > 365:
+                        days_back = 365
+                    
+                    stats = self.db_manager.get_usage_statistics(days_back=days_back)
+                    start_date = None
+                    end_date = None
+                
+                else:
+                    # По умолчанию 30 дней
+                    days_back = 30
+                    stats = self.db_manager.get_usage_statistics(days_back=days_back)
+                    start_date = None
+                    end_date = None
                 
                 return render_template_string(
                     self.templates.get_statistics_template(),
                     stats=stats,
-                    days_back=days_back
+                    days_back=days_back,
+                    start_date=start_date,
+                    end_date=end_date
                 )
                 
             except Exception as e:
