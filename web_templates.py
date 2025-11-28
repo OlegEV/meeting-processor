@@ -1138,20 +1138,6 @@ class WebTemplates:
             // Обработчик кнопки "Применить фильтр"
             applyButton.addEventListener('click', applyDateFilter);
             
-            // Автоматическая отправка при выборе обеих дат
-            function checkAutoSubmit() {
-                if (startDateInput.value && endDateInput.value) {
-                    const validation = validateDates();
-                    if (validation.valid) {
-                        // Небольшая задержка для лучшего UX
-                        setTimeout(applyDateFilter, 300);
-                    }
-                }
-            }
-            
-            startDateInput.addEventListener('change', checkAutoSubmit);
-            endDateInput.addEventListener('change', checkAutoSubmit);
-            
             // Обработчики для кнопок периодов
             dayButtons.forEach(button => {
                 button.addEventListener('click', function(e) {
