@@ -13,7 +13,7 @@
     "processing_timeout": 1800,
     "auto_detect_template": false,
     "deepgram_timeout": 600,
-    "chunk_duration_minutes": 20
+    "chunk_duration_minutes": 60
   },
   "url_processing": {
     "enabled": true,

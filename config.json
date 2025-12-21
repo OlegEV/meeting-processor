@@ -42,12 +42,37 @@
     "deepgram_model": "nova-3",
     "claude_model": "anthropic/claude-sonnet-4.5",
     "deepgram_timeout_seconds": 300,
-    "chunk_duration_minutes": 30,
+    "chunk_duration_minutes": 120,
     "max_file_size_mb": 200,
-    "max_duration_minutes": 30,
+    "max_duration_minutes": 240,
     "request_pause_seconds": 10,
     "max_retries": 3,
     "template_type": "standard"
+  },
+ 
+  "confluence": {
+    "enabled": false,
+    "base_url": "https://wiki.ekassir.com/",
+    "username": "egorovov@ekassir.com",
+    "parent_page_id": null,
+    "auto_publish": false,
+    "timeout": 30,
+    "max_retries": 3,
+    "retry_delay": 3,
+    "page_title_format": "YYYYMMDD - {topic}",
+    "content_format": "storage",
+    "include_metadata": false,
+    "notification_settings": {
+      "notify_on_publish": false,
+      "notify_on_error": true,
+      "notification_recipients": []
+    },
+    "advanced_settings": {
+      "use_page_hierarchy": true,
+      "create_index_page": false,
+      "archive_old_pages": false,
+      "page_labels": ["meeting-protocol", "auto-generated"]
+    }
   },
 
   "deepgram_options": {
@@ -57,14 +82,14 @@
     "paragraphs": true,
     "utterances": true,
     "summarize": false,
-    "detect_language": false
+    "detect_language": true
   },
 
   "template_settings": {
     "auto_detect_meeting_type": false,
     "include_technical_info": false,
     "include_file_datetime": false,
-    "max_tokens": 2600,
+    "max_tokens": 3000,
     "fallback_template": "standard"
   },
 

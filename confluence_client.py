@@ -8,6 +8,7 @@ import requests
 import json
 import re
 import logging
+import os
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
@@ -857,8 +858,13 @@ def create_confluence_client(config: Dict[str, Any]) -> ConfluenceServerClient:
     if not confluence_config.get('enabled', False):
         raise ConfluenceValidationError("Confluence интеграция отключена")
     
+    # Получаем токен из переменных окружения или конфигурации
+    api_token = os.getenv('CONFLUENCE_API_TOKEN')
+    
+    if not api_token:
+        raise ConfluenceValidationError("Не указан CONFLUENCE_API_TOKEN в переменных окружения")
+    
     # Расшифровка токена если необходимо
-    api_token = confluence_config.get('api_token')
     encryption_key = confluence_config.get('encryption_key')
     
     if encryption_key and api_token:
