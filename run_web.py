@@ -14,6 +14,14 @@ import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
+# Загружаем переменные окружения из .env файла
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # python-dotenv не установлен, переменные окружения должны быть установлены системно
+    pass
+
 # Веб-фреймворк
 try:
     from flask import Flask, request, render_template_string, jsonify, send_file, redirect, url_for, flash, session
@@ -243,9 +251,10 @@ class WorkingMeetingWebApp:
                 logger.error(f"Ошибка инициализации менеджера токенов: {e}")
                 return
             
-            # Получаем токен API
-            api_token = None
-            if confluence_config.get('encrypted_token'):
+            # Получаем токен API из переменных окружения или конфигурации
+            api_token = os.getenv('CONFLUENCE_API_TOKEN')
+            
+            if not api_token and confluence_config.get('encrypted_token'):
                 try:
                     # Пытаемся получить расшифрованный токен
                     api_token = self.token_manager.get_token(
@@ -259,7 +268,7 @@ class WorkingMeetingWebApp:
                 api_token = confluence_config['api_token']
             
             if not api_token:
-                logger.warning("Confluence: API токен не найден")
+                logger.warning("Confluence: API токен не найден в переменных окружения или конфигурации")
                 return
             
             # Создаем конфигурацию Confluence
@@ -1271,10 +1280,16 @@ class WorkingMeetingWebApp:
                     if not confluence_config:
                         return jsonify({'success': False, 'error': 'Confluence не настроен в конфигурации'}), 500
                     
+                    # Получаем API токен из переменных окружения или конфигурации
+                    api_token = os.getenv('CONFLUENCE_API_TOKEN') or confluence_config.get('api_token', '')
+                    
+                    if not api_token:
+                        return jsonify({'success': False, 'error': 'Не указан CONFLUENCE_API_TOKEN в переменных окружения или конфигурации'}), 500
+                    
                     # Создаем конфигурацию
                     config = ConfluenceConfig(
                         base_url=confluence_config['base_url'],
-                        api_token=confluence_config.get('api_token', ''),
+                        api_token=api_token,
                         space_key=space_key,
                         username=confluence_config.get('username'),  # Опциональное поле для совместимости
                         timeout=confluence_config.get('timeout', 30),

@@ -899,8 +899,6 @@ def create_confluence_publication_service(config: Dict[str, Any],
     Returns:
         Настроенный сервис публикации
     """
-    confluence_client = create_
-
 
 def create_confluence_publication_service(config: Dict[str, Any], 
                                          db_manager: DatabaseManager) -> ConfluencePublicationService:
