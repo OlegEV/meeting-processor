@@ -11,28 +11,24 @@ class ConfigLoader:
     """Класс для загрузки различных конфигурационных файлов"""
     
     @staticmethod
-    def load_api_keys(api_keys_file: str = "api_keys.json") -> Dict:
-        """Загружает API ключи из отдельного файла"""
-        try:
-            if os.path.exists(api_keys_file):
-                with open(api_keys_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            else:
-                print(f"❌ Файл API ключей {api_keys_file} не найден")
-                # Создаем файл-заглушку
-                default_keys = {
-                    "api_keys": {
-                        "deepgram": "your_deepgram_api_key_here",
-                        "claude": "your_openrouter_api_key_here"
-                    }
-                }
-                with open(api_keys_file, "w", encoding="utf-8") as f:
-                    json.dump(default_keys, f, ensure_ascii=False, indent=2)
-                print(f"📁 Создан файл {api_keys_file}. Добавьте в него ваши API ключи.")
-                return default_keys
-        except Exception as e:
-            print(f"❌ Ошибка при загрузке API ключей: {e}")
-            return {"api_keys": {"deepgram": "", "claude": ""}}
+    def load_api_keys(api_keys_file: str = None) -> Dict:
+        """Загружает API ключи из переменных окружения"""
+        # Получаем ключи из переменных окружения
+        deepgram_key = os.getenv('DEEPGRAM_API_KEY', '')
+        claude_key = os.getenv('CLAUDE_API_KEY', '')
+        
+        if not deepgram_key:
+            print("⚠️ Переменная окружения DEEPGRAM_API_KEY не установлена")
+        
+        if not claude_key:
+            print("⚠️ Переменная окружения CLAUDE_API_KEY не установлена")
+        
+        return {
+            "api_keys": {
+                "deepgram": deepgram_key,
+                "claude": claude_key
+            }
+        }
 
     @staticmethod
     def load_config(config_file: str = "config.json") -> Dict:
@@ -91,7 +87,8 @@ class ConfigLoader:
         settings['names_config'] = getattr(args, 'names', None) or config.get("paths", {}).get("names_config", "names_config.json")
         settings['templates_config'] = config.get("paths", {}).get("templates_config", "templates_config.json")
         settings['team_config'] = getattr(args, 'team_config', None) or config.get("paths", {}).get("team_config", "team_config.json")
-        settings['api_keys_file'] = config.get("paths", {}).get("api_keys_config", "api_keys.json")
+        # API keys are now loaded from environment variables only
+        settings['api_keys_file'] = None
         
         # Настройки обработки
         settings['deepgram_timeout'] = getattr(args, 'timeout', None) or config.get("settings", {}).get("deepgram_timeout_seconds", 300)

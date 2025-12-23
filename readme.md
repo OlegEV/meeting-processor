@@ -59,17 +59,20 @@ python install_ffmpeg.py
 }
 ```
 
-### 2. Конфигурация токенов доступа (names_config.json)
+### 2. Конфигурация токенов доступа
 
-Отредактируйте файл `api_keys.json`:
+Установите переменные окружения:
 
-```json
-{
-  "api_keys": {
-    "deepgram": "ваш_ключ_deepgram",
-    "claude": "ваш_ключ_openrouter"
-  }
-}
+```bash
+export DEEPGRAM_API_KEY="ваш_ключ_deepgram"
+export CLAUDE_API_KEY="ваш_ключ_openrouter"
+```
+
+Или создайте файл `.env`:
+
+```bash
+DEEPGRAM_API_KEY=ваш_ключ_deepgram
+CLAUDE_API_KEY=ваш_ключ_openrouter
 ```
 
 

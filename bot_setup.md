@@ -47,15 +47,20 @@ pip install requests
 
 ### 3. Настройка API ключей
 
-Отредактируйте файл `api_keys.json`:
+Установите переменные окружения:
 
-```json
-{
-  "api_keys": {
-    "deepgram": "ВАШ_DEEPGRAM_КЛЮЧ",
-    "claude": "ВАШ_CLAUDE_КЛЮЧ"
-  }
-}
+```bash
+export DEEPGRAM_API_KEY="ВАШ_DEEPGRAM_КЛЮЧ"
+export CLAUDE_API_KEY="ВАШ_CLAUDE_КЛЮЧ"
+export TELEGRAM_BOT_TOKEN="ВАШ_TELEGRAM_ТОКЕН"
+```
+
+Или создайте файл `.env`:
+
+```bash
+DEEPGRAM_API_KEY=ВАШ_DEEPGRAM_КЛЮЧ
+CLAUDE_API_KEY=ВАШ_CLAUDE_КЛЮЧ
+TELEGRAM_BOT_TOKEN=ВАШ_TELEGRAM_ТОКЕН
 ```
 
 ### 4. Запуск бота
@@ -71,7 +76,7 @@ python telegram_bot.py
 project/
 ├── telegram_bot.py          # Основной файл бота
 ├── bot_config.json          # Конфигурация бота
-├── api_keys.json           # API ключи
+├── .env                     # Переменные окружения (API ключи)
 ├── meeting_processor.py    # Обработчик встреч
 ├── meeting_templates.py    # Шаблоны протоколов
 ├── templates_config.json   # Настройки шаблонов
@@ -195,8 +200,10 @@ tail telegram_bot.log
 
 ### Проблема: Ошибка API ключей
 ```bash
-# Проверьте ключи
-cat api_keys.json
+# Проверьте переменные окружения
+echo $DEEPGRAM_API_KEY
+echo $CLAUDE_API_KEY
+echo $TELEGRAM_BOT_TOKEN
 
 # Тестируйте ключи отдельно
 python -c "from meeting_processor import MeetingProcessor; print('OK')"
@@ -218,11 +225,11 @@ python -c "from meeting_processor import MeetingProcessor; print('OK')"
 ### Защита API ключей
 ```bash
 # Установите права доступа только для владельца
-chmod 600 api_keys.json
+chmod 600 .env
 chmod 600 bot_config.json
 
 # Добавьте в .gitignore
-echo "api_keys.json" >> .gitignore
+echo ".env" >> .gitignore
 echo "bot_config.json" >> .gitignore
 ```
 

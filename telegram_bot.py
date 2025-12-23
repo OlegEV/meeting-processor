@@ -269,41 +269,37 @@ class MeetingBot:
         }
     
     def _load_api_keys(self) -> Dict:
-        """Загружает API ключи из файла или переменных окружения"""
+        """Загружает API ключи из переменных окружения"""
         api_keys = {}
         
-        # Пробуем загрузить из файла
-        try:
-            if os.path.exists("api_keys.json"):
-                with open("api_keys.json", "r", encoding="utf-8") as f:
-                    file_keys = json.load(f)
-                    api_keys = file_keys.get("api_keys", {})
-        except Exception as e:
-            if hasattr(self, 'logger'):
-                self.logger.warning(f"Не удалось загрузить api_keys.json: {e}")
-        
-        # Переопределяем из переменных окружения только если ключи отсутствуют в файле
+        # Загружаем из переменных окружения
         env_deepgram = os.getenv('DEEPGRAM_API_KEY')
         env_claude = os.getenv('CLAUDE_API_KEY')
         env_telegram = os.getenv('TELEGRAM_BOT_TOKEN')
         
-        if env_deepgram and not api_keys.get('deepgram'):
+        if env_deepgram:
             api_keys['deepgram'] = env_deepgram
             if hasattr(self, 'logger'):
                 self.logger.info("🔑 Использован Deepgram API ключ из переменной окружения")
+        else:
+            if hasattr(self, 'logger'):
+                self.logger.warning("⚠️ Переменная окружения DEEPGRAM_API_KEY не установлена")
         
-        if env_claude and not api_keys.get('claude'):
+        if env_claude:
             api_keys['claude'] = env_claude
             if hasattr(self, 'logger'):
                 self.logger.info("🔑 Использован Claude API ключ из переменной окружения")
+        else:
+            if hasattr(self, 'logger'):
+                self.logger.warning("⚠️ Переменная окружения CLAUDE_API_KEY не установлена")
         
-        if env_telegram and not api_keys.get('telegram_bot_token'):
+        if env_telegram:
             api_keys['telegram_bot_token'] = env_telegram
             if hasattr(self, 'logger'):
                 self.logger.info("🔑 Использован Telegram Bot токен из переменной окружения")
-        elif api_keys.get('telegram_bot_token'):
+        else:
             if hasattr(self, 'logger'):
-                self.logger.info("🔑 Использован Telegram Bot токен из файла")
+                self.logger.warning("⚠️ Переменная окружения TELEGRAM_BOT_TOKEN не установлена")
         
         return {"api_keys": api_keys}
     
@@ -2131,10 +2127,10 @@ class MeetingBot:
         # Проверяем токен
         bot_token = self.api_keys.get("api_keys", {}).get("telegram_bot_token", "")
         
-        if not bot_token or bot_token == "YOUR_BOT_TOKEN_HERE":
-            self.logger.error("❌ Токен бота не настроен в api_keys.json")
+        if not bot_token:
+            self.logger.error("❌ Токен бота не настроен")
             print("❌ Токен бота не настроен!")
-            print("Установите токен в api_keys.json или переменной окружения TELEGRAM_BOT_TOKEN")
+            print("Установите переменную окружения TELEGRAM_BOT_TOKEN")
             return
         
         # Проверяем API ключи
@@ -2142,7 +2138,7 @@ class MeetingBot:
         if not api_keys_valid:
             self.logger.error(error_msg)
             print(error_msg)
-            print("Настройте API ключи в файле api_keys.json или переменных окружения")
+            print("Настройте API ключи в переменных окружения (DEEPGRAM_API_KEY, CLAUDE_API_KEY)")
             return
         
         # Создаем приложение

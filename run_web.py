@@ -136,9 +136,8 @@ class WorkingMeetingWebApp:
         if not self.config:
             raise Exception(f"Не удалось загрузить конфигурацию из {config_file}")
         
-        # Загружаем API ключи
-        api_keys_file = self.config.get("paths", {}).get("api_keys_config", "api_keys.json")
-        self.api_keys_data = ConfigLoader.load_api_keys(api_keys_file)
+        # Загружаем API ключи из переменных окружения
+        self.api_keys_data = ConfigLoader.load_api_keys()
         
         # Проверяем API ключи
         deepgram_valid, claude_valid, self.deepgram_key, self.claude_key = ConfigLoader.validate_api_keys(self.api_keys_data)
@@ -1781,7 +1780,7 @@ def main():
         print("="*60)
         print(f"📱 Веб-интерфейс: http://localhost:{args.port}")
         print("🔧 Конфигурация: config.json")
-        print("🔑 API ключи: api_keys.json")
+        print("🔑 API ключи: переменные окружения")
         print("📁 Загрузки: web_uploads/")
         print("📄 Результаты: web_output/")
         print("📊 Логи: logs/web_app.log")
