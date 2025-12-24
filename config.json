@@ -53,15 +53,13 @@
   "confluence": {
     "enabled": false,
     "base_url": "https://wiki.ekassir.com/",
-    "username": "egorovov@ekassir.com",
-    "parent_page_id": null,
     "auto_publish": false,
     "timeout": 30,
     "max_retries": 3,
     "retry_delay": 3,
     "page_title_format": "YYYYMMDD - {topic}",
     "content_format": "storage",
-    "include_metadata": false,
+    "include_metadata": true,
     "notification_settings": {
       "notify_on_publish": false,
       "notify_on_error": true,

@@ -440,7 +440,7 @@ class WorkingMeetingWebApp:
         import re
         import requests
         import json
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import urlparse, parse_qs, unquote
         
         result = {
             'page_id': None,
@@ -477,10 +477,58 @@ class WorkingMeetingWebApp:
             match = re.search(server_pattern2, base_page_url)
             if match:
                 result['space_key'] = match.group(1)
-                page_slug = match.group(2)
+                page_slug = unquote(match.group(2))  # Декодируем URL-encoded символы
                 result['extraction_method'] = 'url_display'
                 logger.info(f"🔍 Найден space_key из display URL: {result['space_key']}")
                 logger.info(f"🔍 Найден page slug: {page_slug}")
+                
+                # Попытка получить page_id через Confluence REST API
+                logger.info(f"🔍 DEBUG REST API: api_token={'есть' if api_token else 'НЕТ'}, space_key={result['space_key']}, base_url={result['base_url']}")
+                
+                if api_token and result['space_key'] and result['base_url']:
+                    try:
+                        # Заменяем + на пробелы в заголовке
+                        page_title_search = page_slug.replace('+', ' ')
+                        
+                        logger.info(f"🔍 Попытка получить page_id через Confluence REST API для '{page_title_search}' в пространстве '{result['space_key']}'")
+                        
+                        # Используем Confluence REST API для поиска страницы по заголовку
+                        api_url = f"{result['base_url']}/rest/api/content"
+                        params = {
+                            'type': 'page',
+                            'spaceKey': result['space_key'],
+                            'title': page_title_search,
+                            'expand': 'version,space'
+                        }
+                        
+                        headers = {
+                            'Authorization': f'Bearer {api_token}',
+                            'Accept': 'application/json'
+                        }
+                        
+                        response = requests.get(api_url, params=params, headers=headers, timeout=timeout)
+                        
+                        if response.status_code == 200:
+                            data = response.json()
+                            
+                            if data.get('results') and len(data['results']) > 0:
+                                page_info = data['results'][0]
+                                result['page_id'] = str(page_info['id'])
+                                result['page_title'] = page_info.get('title', page_title_search)
+                                result['extraction_method'] = 'rest_api'
+                                logger.info(f"🔍 ✅ Получен page_id через REST API: {result['page_id']}")
+                                logger.info(f"🔍 ✅ Получен page_title через REST API: {result['page_title']}")
+                            else:
+                                logger.warning(f"🔍 REST API не нашел страницу '{page_title_search}' в пространстве '{result['space_key']}'")
+                        else:
+                            logger.warning(f"🔍 REST API вернул статус {response.status_code}: {response.text[:200]}")
+                    
+                    except requests.RequestException as api_error:
+                        logger.warning(f"🔍 Ошибка при использовании Confluence REST API: {api_error}")
+                        # Продолжаем с другими методами извлечения
+                    except Exception as api_error:
+                        logger.warning(f"🔍 Неожиданная ошибка при использовании REST API: {api_error}")
+                        # Продолжаем с другими методами извлечения
             
             # Confluence Cloud формат: /wiki/spaces/SPACE/pages/123456/PAGE
             cloud_pattern = r'/wiki/spaces/([^/]+)/pages/(\d+)/(.+?)(?:\?|$)'
@@ -1213,8 +1261,9 @@ class WorkingMeetingWebApp:
                 # Используем новую улучшенную функцию извлечения метаданных
                 logger.info(f"🔍 DEBUG: Извлечение метаданных из URL: {base_page_url}")
                 
-                # Получаем API токен для аутентификации
-                api_token = confluence_config.get('api_token', '')
+                # Получаем API токен для аутентификации - сначала из переменных окружения, потом из конфига
+                api_token = os.getenv('CONFLUENCE_API_TOKEN') or confluence_config.get('api_token', '')
+                logger.info(f"🔍 DEBUG: API токен {'найден' if api_token else 'НЕ НАЙДЕН'}")
                 
                 # Извлекаем метаданные с помощью улучшенной функции
                 metadata = self.extract_confluence_metadata(base_page_url, api_token, timeout=30)
@@ -1303,12 +1352,17 @@ class WorkingMeetingWebApp:
                     processor = ConfluenceContentProcessor()
                     confluence_content = processor.markdown_to_confluence(protocol_content)
                     
+                    # Получаем метки из конфигурации
+                    page_labels = confluence_config.get('advanced_settings', {}).get('page_labels', [])
+                    logger.info(f"🔍 DEBUG: Метки из конфигурации: {page_labels}")
+                    
                     # Создаем страницу в Confluence
                     page_info = confluence_client.create_page(
                         title=page_title,
                         content=confluence_content,
                         parent_page_id=parent_page_id,
-                        space_key=space_key
+                        space_key=space_key,
+                        labels=page_labels
                     )
                     
                     logger.info(f"🔍 DEBUG: Created Confluence page with parent_page_id: {parent_page_id}")

@@ -508,7 +508,7 @@ class ConfluenceServerClient:
         return response.json()
     
     def create_page(self, title: str, content: str, parent_page_id: Optional[str] = None,
-                   space_key: Optional[str] = None) -> Dict[str, Any]:
+                   space_key: Optional[str] = None, labels: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Создает новую страницу в Confluence
         
@@ -517,6 +517,7 @@ class ConfluenceServerClient:
             content: Содержимое страницы в Storage Format
             parent_page_id: ID родительской страницы
             space_key: Ключ пространства
+            labels: Список меток для страницы
             
         Returns:
             Информация о созданной странице
@@ -545,7 +546,46 @@ class ConfluenceServerClient:
             json=page_data
         )
         
-        return response.json()
+        page_info = response.json()
+        
+        # Добавляем метки если указаны
+        if labels and len(labels) > 0:
+            try:
+                self.add_labels_to_page(page_info['id'], labels)
+                logger.info(f"Добавлены метки к странице {page_info['id']}: {labels}")
+            except Exception as e:
+                logger.warning(f"Не удалось добавить метки к странице {page_info['id']}: {e}")
+        
+        return page_info
+    
+    def add_labels_to_page(self, page_id: str, labels: List[str]) -> bool:
+        """
+        Добавляет метки к странице
+        
+        Args:
+            page_id: ID страницы
+            labels: Список меток
+            
+        Returns:
+            True если метки успешно добавлены
+        """
+        try:
+            for label in labels:
+                label_data = {
+                    'prefix': 'global',
+                    'name': label
+                }
+                
+                self._make_request(
+                    'POST',
+                    f'/rest/api/content/{page_id}/label',
+                    json=label_data
+                )
+            
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка добавления меток к странице {page_id}: {e}")
+            return False
     
     def update_page(self, page_id: str, title: str, content: str, 
                    version_number: int) -> Dict[str, Any]:
