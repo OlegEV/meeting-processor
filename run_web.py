@@ -1161,6 +1161,216 @@ class WorkingMeetingWebApp:
                 flash('Ошибка получения статистики', 'error')
                 return redirect(url_for('index'))
         
+        @self.app.route('/statistics/export')
+        @require_auth()
+        def export_statistics():
+            """Экспорт сырых данных статистики в Excel"""
+            try:
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+                from openpyxl.utils import get_column_letter
+                from io import BytesIO
+                from datetime import datetime
+                
+                # Получаем параметры фильтрации
+                days_back = request.args.get('days', type=int)
+                start_date = request.args.get('start_date', type=str)
+                end_date = request.args.get('end_date', type=str)
+                
+                # Определяем диапазон дат для SQL запроса
+                if start_date and end_date:
+                    try:
+                        datetime.fromisoformat(start_date)
+                        datetime.fromisoformat(end_date)
+                        date_filter = "j.created_at >= ? AND j.created_at < datetime(?, '+1 day')"
+                        date_params = (start_date, end_date)
+                        start_dt = datetime.fromisoformat(start_date)
+                        end_dt = datetime.fromisoformat(end_date)
+                        days_back = (end_dt - start_dt).days + 1
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Неверный формат дат при экспорте: {e}")
+                        days_back = 30
+                        start_date = None
+                        end_date = None
+                        date_filter = "j.created_at >= datetime('now', '-30 days')"
+                        date_params = ()
+                elif days_back:
+                    if days_back < 1:
+                        days_back = 30
+                    elif days_back > 365:
+                        days_back = 365
+                    date_filter = f"j.created_at >= datetime('now', '-{days_back} days')"
+                    date_params = ()
+                    start_date = None
+                    end_date = None
+                else:
+                    days_back = 30
+                    date_filter = "j.created_at >= datetime('now', '-30 days')"
+                    date_params = ()
+                    start_date = None
+                    end_date = None
+                
+                # Получаем сырые данные из БД
+                with self.db_manager._get_connection() as conn:
+                    cursor = conn.cursor()
+                    
+                    # Запрос для получения всех записей из таблицы jobs за период
+                    query = f"""
+                        SELECT
+                            j.job_id,
+                            j.user_id,
+                            u.name as user_name,
+                            u.email as user_email,
+                            j.filename,
+                            j.template,
+                            j.status,
+                            j.progress,
+                            j.message,
+                            j.created_at,
+                            j.completed_at,
+                            j.error
+                        FROM jobs j
+                        LEFT JOIN users u ON j.user_id = u.user_id
+                        WHERE {date_filter}
+                        ORDER BY j.created_at DESC
+                    """
+                    
+                    cursor.execute(query, date_params)
+                    rows = cursor.fetchall()
+                
+                # Создаем Excel файл
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Статистика"
+                
+                # Стили
+                header_font = Font(bold=True, color="FFFFFF", size=11)
+                header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+                header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                data_alignment = Alignment(horizontal="left", vertical="center")
+                thin_border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
+                
+                # Заголовок с информацией о периоде
+                ws['A1'] = "Статистика обработки встреч"
+                ws['A1'].font = Font(bold=True, size=14)
+                ws.merge_cells('A1:L1')
+                
+                if start_date and end_date:
+                    period_text = f"Период: с {start_date} по {end_date} ({days_back} дней)"
+                else:
+                    period_text = f"Период: последние {days_back} дней"
+                
+                ws['A2'] = period_text
+                ws['A2'].font = Font(italic=True)
+                ws.merge_cells('A2:L2')
+                
+                ws['A3'] = f"Дата экспорта: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                ws['A3'].font = Font(italic=True, size=9)
+                ws.merge_cells('A3:L3')
+                
+                # Заголовки колонок
+                headers = [
+                    "ID задачи",
+                    "ID пользователя",
+                    "Имя пользователя",
+                    "Email пользователя",
+                    "Имя файла",
+                    "Шаблон",
+                    "Статус",
+                    "Прогресс (%)",
+                    "Сообщение",
+                    "Дата создания",
+                    "Дата завершения",
+                    "Ошибка"
+                ]
+                
+                for col, header in enumerate(headers, 1):
+                    cell = ws.cell(row=5, column=col, value=header)
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_alignment
+                    cell.border = thin_border
+                
+                # Данные
+                for row_idx, row_data in enumerate(rows, 6):
+                    row_dict = dict(row_data)
+                    
+                    ws.cell(row=row_idx, column=1, value=row_dict['job_id']).border = thin_border
+                    ws.cell(row=row_idx, column=2, value=row_dict['user_id']).border = thin_border
+                    ws.cell(row=row_idx, column=3, value=row_dict.get('user_name') or '').border = thin_border
+                    ws.cell(row=row_idx, column=4, value=row_dict.get('user_email') or '').border = thin_border
+                    ws.cell(row=row_idx, column=5, value=row_dict['filename']).border = thin_border
+                    ws.cell(row=row_idx, column=6, value=row_dict['template']).border = thin_border
+                    ws.cell(row=row_idx, column=7, value=row_dict['status']).border = thin_border
+                    ws.cell(row=row_idx, column=8, value=row_dict['progress']).border = thin_border
+                    ws.cell(row=row_idx, column=9, value=row_dict.get('message') or '').border = thin_border
+                    ws.cell(row=row_idx, column=10, value=row_dict.get('created_at') or '').border = thin_border
+                    ws.cell(row=row_idx, column=11, value=row_dict.get('completed_at') or '').border = thin_border
+                    ws.cell(row=row_idx, column=12, value=row_dict.get('error') or '').border = thin_border
+                    
+                    # Выравнивание
+                    for col in range(1, 13):
+                        ws.cell(row=row_idx, column=col).alignment = data_alignment
+                
+                # Автоширина колонок
+                column_widths = {
+                    'A': 38,  # ID задачи
+                    'B': 25,  # ID пользователя
+                    'C': 25,  # Имя пользователя
+                    'D': 30,  # Email
+                    'E': 40,  # Имя файла
+                    'F': 15,  # Шаблон
+                    'G': 12,  # Статус
+                    'H': 12,  # Прогресс
+                    'I': 50,  # Сообщение
+                    'J': 20,  # Дата создания
+                    'K': 20,  # Дата завершения
+                    'L': 50   # Ошибка
+                }
+                
+                for col_letter, width in column_widths.items():
+                    ws.column_dimensions[col_letter].width = width
+                
+                # Закрепляем заголовки
+                ws.freeze_panes = 'A6'
+                
+                # Сохраняем в BytesIO
+                output = BytesIO()
+                wb.save(output)
+                output.seek(0)
+                
+                # Формируем имя файла
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                if start_date and end_date:
+                    filename = f"statistics_raw_{start_date}_{end_date}_{timestamp}.xlsx"
+                else:
+                    filename = f"statistics_raw_{days_back}days_{timestamp}.xlsx"
+                
+                logger.info(f"Экспорт сырых данных статистики в Excel: {filename}, записей: {len(rows)} (пользователь: {get_current_user_id()})")
+                
+                return send_file(
+                    output,
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    as_attachment=True,
+                    download_name=filename
+                )
+                
+            except ImportError:
+                logger.error("Библиотека openpyxl не установлена")
+                flash('Ошибка: библиотека для экспорта в Excel не установлена', 'error')
+                return redirect(url_for('statistics'))
+            except Exception as e:
+                logger.error(f"Ошибка экспорта статистики в Excel: {e}")
+                import traceback
+                traceback.print_exc()
+                flash(f'Ошибка экспорта статистики: {str(e)}', 'error')
+                return redirect(url_for('statistics'))
+        
         @self.app.route('/docs')
         def docs_index():
             """Главная страница документации"""

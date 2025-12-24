@@ -15,5 +15,8 @@ Werkzeug>=2.3.0
 gunicorn>=21.2.0
 PyJWT>=2.8.0
 
+# Excel export
+openpyxl>=3.1.0
+
 # Confluence Integration Dependencies
 cryptography>=41.0.0

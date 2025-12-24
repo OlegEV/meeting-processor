@@ -850,11 +850,16 @@ class WebTemplates:
                 <div class="card shadow">
                     <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
                         <h4><i class="fas fa-chart-bar me-2"></i>Статистика использования приложения</h4>
-                        <div class="btn-group" role="group">
-                            <a href="/statistics?days=7" class="btn btn-outline-light btn-sm {% if days_back == 7 %}active{% endif %}">7 дней</a>
-                            <a href="/statistics?days=30" class="btn btn-outline-light btn-sm {% if days_back == 30 %}active{% endif %}">30 дней</a>
-                            <a href="/statistics?days=90" class="btn btn-outline-light btn-sm {% if days_back == 90 %}active{% endif %}">90 дней</a>
-                            <a href="/statistics?days=365" class="btn btn-outline-light btn-sm {% if days_back == 365 %}active{% endif %}">1 год</a>
+                        <div class="d-flex gap-2">
+                            <div class="btn-group" role="group">
+                                <a href="/statistics?days=7" class="btn btn-outline-light btn-sm {% if days_back == 7 %}active{% endif %}">7 дней</a>
+                                <a href="/statistics?days=30" class="btn btn-outline-light btn-sm {% if days_back == 30 %}active{% endif %}">30 дней</a>
+                                <a href="/statistics?days=90" class="btn btn-outline-light btn-sm {% if days_back == 90 %}active{% endif %}">90 дней</a>
+                                <a href="/statistics?days=365" class="btn btn-outline-light btn-sm {% if days_back == 365 %}active{% endif %}">1 год</a>
+                            </div>
+                            <button id="exportExcelBtn" class="btn btn-success btn-sm" title="Экспорт в Excel">
+                                <i class="fas fa-file-excel me-1"></i>Экспорт в Excel
+                            </button>
                         </div>
                     </div>
                     
@@ -1102,6 +1107,7 @@ class WebTemplates:
             const applyButton = document.getElementById('applyDates');
             const dateForm = document.getElementById('dateRangeForm');
             const dayButtons = document.querySelectorAll('.btn-group a');
+            const exportExcelBtn = document.getElementById('exportExcelBtn');
             
             // Функция валидации дат
             function validateDates() {
@@ -1196,6 +1202,30 @@ class WebTemplates:
                         endDateInput.classList.remove('is-invalid');
                     }
                 }
+            });
+            
+            // Обработчик кнопки экспорта в Excel
+            exportExcelBtn.addEventListener('click', function() {
+                // Получаем текущие параметры фильтрации
+                const startDate = startDateInput.value;
+                const endDate = endDateInput.value;
+                
+                // Формируем URL для экспорта с теми же параметрами фильтрации
+                let exportUrl = '/statistics/export';
+                const params = new URLSearchParams();
+                
+                if (startDate && endDate) {
+                    params.append('start_date', startDate);
+                    params.append('end_date', endDate);
+                } else {
+                    // Используем текущий период из URL или значение по умолчанию
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const days = urlParams.get('days') || '{{ days_back }}';
+                    params.append('days', days);
+                }
+                
+                // Переходим на URL экспорта
+                window.location.href = exportUrl + '?' + params.toString();
             });
         });
     </script>
@@ -1637,3 +1667,4 @@ class WebTemplates:
 </body>
 </html>
         '''
+
