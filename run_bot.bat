@@ -87,22 +87,6 @@ if not exist "bot_config.json" (
     echo ✅ Создан bot_config.json
 )
 
-if not exist "api_keys.json" (
-    echo ⚠️ Файл api_keys.json не найден!
-    echo Создаю конфигурацию API ключей...
-    
-    (
-        echo {
-        echo   "api_keys": {
-        echo     "deepgram": "",
-        echo     "claude": ""
-        echo   }
-        echo }
-    ) > api_keys.json
-    
-    echo ✅ Создан api_keys.json
-)
-
 if not exist "config.json" (
     echo ⚠️ Файл config.json не найден!
     echo Создаю основную конфигурацию...

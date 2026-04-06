@@ -60,7 +60,6 @@ meeting-bot/
 │   ├── .env                    # Переменные окружения
 │   ├── .env.example            # Пример файла окружения
 │   ├── bot_config.json         # Настройки бота
-│   ├── api_keys.json           # API ключи
 │   ├── config.json             # Основная конфигурация
 │   ├── templates_config.json   # Конфигурация шаблонов
 │   ├── names_config.json       # Настройки имен
@@ -146,7 +145,6 @@ docker-compose exec telegram-bot /bin/bash
 volumes:
   # Конфигурационные файлы (только чтение)
   - ./bot_config.json:/app/bot_config.json:ro
-  - ./api_keys.json:/app/api_keys.json:ro
   - ./config.json:/app/config.json:ro
   - ./templates_config.json:/app/templates_config.json:ro
   - ./names_config.json:/app/names_config.json:ro
@@ -228,7 +226,6 @@ docker-compose ps
 1. Проверьте JSON синтаксис в конфигурационных файлах
 2. Убедитесь, что все файлы существуют в корневой папке:
    - `bot_config.json`
-   - `api_keys.json`
    - `config.json`
    - `templates_config.json`
    - `names_config.json`
@@ -240,9 +237,8 @@ docker-compose ps
 
 **Решение:**
 1. Проверьте файл `.env`
-2. Проверьте файл `api_keys.json`
-3. Убедитесь, что API ключи действительны
-4. Перезапустите контейнер:
+2. Убедитесь, что API ключи действительны
+3. Перезапустите контейнер:
 ```batch
 docker-compose restart telegram-bot
 ```
@@ -286,7 +282,6 @@ docker system prune -a --volumes
 .env
 .env.*
 bot_config.json
-api_keys.json
 config.json
 templates_config.json
 names_config.json
@@ -381,7 +376,6 @@ meeting-bot/
 │   ├── .env.example            # Пример файла окружения
 │   └── config/                 # Конфигурационные файлы
 │       ├── bot_config.json     # Настройки бота
-│       ├── api_keys.json       # API ключи
 │       └── config.json         # Основная конфигурация
 │
 ├── 📝 Python код

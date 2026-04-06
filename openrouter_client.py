@@ -4,26 +4,41 @@
 """
 
 from typing import Dict, Optional, List
+import httpx
 import openai
+
+from config_loader import ConfigLoader
 
 class OpenRouterClient:
     """Клиент для работы с OpenRouter API"""
     
-    def __init__(self, api_key: str, model: str = "anthropic/claude-sonnet-4.5"):
+    def __init__(self, api_key: str, model: str = "anthropic/claude-sonnet-4.5", config: Dict = None):
         """
         Инициализация клиента OpenRouter
         
         Args:
             api_key: API ключ OpenRouter
             model: Название модели (например, "anthropic/claude-sonnet-4.5")
+            config: Словарь конфигурации (если None — загружается из config.json)
         """
         self.api_key = api_key
         self.model = model
         
+        if config is None:
+            config = ConfigLoader.load_config()
+        
+        or_cfg = config.get("openrouter", {})
+        base_url      = or_cfg.get("base_url",       "https://openrouter.ai/api/v1")
+        timeout        = or_cfg.get("timeout",        60.0)
+        connect_timeout = or_cfg.get("connect_timeout", 30.0)
+        max_retries    = or_cfg.get("max_retries",    3)
+        
         # Настройка клиента OpenAI для работы с OpenRouter
         self.client = openai.OpenAI(
             api_key=api_key,
-            base_url="https://openrouter.ai/api/v1"
+            base_url=base_url,
+            timeout=httpx.Timeout(timeout, connect=connect_timeout),
+            max_retries=max_retries
         )
     
     def create_message(self, 

@@ -36,6 +36,13 @@
     "structure": "user_based"
   },
 
+  "openrouter": {
+    "base_url": "https://openrouter.ai/api/v1",
+    "timeout": 60.0,
+    "connect_timeout": 30.0,
+    "max_retries": 3
+  },
+
   "settings": {
     "keep_audio_file": false,
     "language": "multi",

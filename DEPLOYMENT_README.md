@@ -172,7 +172,6 @@ curl http://localhost:5000/health
 ### Файлы конфигурации
 - `config.json` - основная конфигурация веб-сервиса
 - `bot_config.json` - конфигурация Telegram бота
-- `api_keys.json` - API ключи (альтернатива переменным окружения)
 - `templates_config.json` - настройки шаблонов
 - `team_config.json` - настройки команды
 
