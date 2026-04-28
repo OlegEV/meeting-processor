@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import json; json.load\\(open\\('config.json', encoding='utf-8'\\)\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('run_web.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('web_templates.py', encoding='utf-8'\\).read\\(\\)\\)\")"
+    ]
+  }
+}

@@ -6,6 +6,7 @@
 
 import os
 import sys
+import json
 import uuid
 import threading
 from pathlib import Path
@@ -325,14 +326,74 @@ class WorkingMeetingWebApp:
             return False
     
     def get_available_templates(self) -> Dict[str, str]:
-        """Возвращает доступные шаблоны"""
-        return self.config.get("template_examples", {
+        """Возвращает доступные шаблоны.
+
+        Источник истины — templates_config.json (template_descriptions).
+        Тот же файл читают meeting_templates.py и template_manager.py,
+        благодаря чему веб-UI, CLI-утилиты и core-обработчик видят одинаковый
+        список шаблонов.
+        """
+        templates_config_path = self.config.get("paths", {}).get(
+            "templates_config", "templates_config.json"
+        )
+        try:
+            with open(templates_config_path, "r", encoding="utf-8") as f:
+                templates_config = json.load(f)
+            descriptions = templates_config.get("template_descriptions", {})
+            if descriptions:
+                return descriptions
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.warning(
+                f"Не удалось прочитать template_descriptions из {templates_config_path}: {e}"
+            )
+
+        # Фоллбэк, если файл недоступен или пуст
+        return {
             "standard": "Универсальный шаблон для любых встреч",
             "business": "Официальный протокол для деловых встреч",
             "project": "Фокус на управлении проектами и задачами",
             "standup": "Краткий формат для ежедневных стендапов",
-            "interview": "Структурированный отчет об интервью"
+            "interview": "Структурированный отчет об интервью",
+            "auto": "Автоматическое определение типа встречи"
+        }
+
+    def get_available_models(self) -> Dict[str, str]:
+        """Возвращает доступные модели OpenRouter (id -> человеко-читаемое описание)"""
+        return self.config.get("available_models", {
+            "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
+            "anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
+            "moonshotai/kimi-k2.6": "Kimi K2.6"
         })
+
+    def get_default_model(self) -> str:
+        """Возвращает модель по умолчанию (из settings, с fallback на первую из available_models)"""
+        default = self.processing_settings.get('claude_model')
+        available = self.get_available_models()
+        if default and default in available:
+            return default
+        return next(iter(available), 'anthropic/claude-sonnet-4.6')
+
+    def resolve_model(self, requested: Optional[str]) -> str:
+        """Валидирует выбранную пользователем модель, возвращает её или модель по умолчанию"""
+        available = self.get_available_models()
+        if requested and requested in available:
+            return requested
+        return self.get_default_model()
+
+    def get_job_model(self, job: Dict[str, Any]) -> str:
+        """Достаёт сохранённую в metadata задачи модель, либо возвращает дефолт"""
+        metadata = job.get('metadata') if job else None
+        if isinstance(metadata, str):
+            try:
+                import json as _json
+                metadata = _json.loads(metadata) if metadata else {}
+            except (ValueError, TypeError):
+                metadata = {}
+        if isinstance(metadata, dict):
+            model = metadata.get('model')
+            if model:
+                return self.resolve_model(model)
+        return self.get_default_model()
     
     def update_job_status(self, job_id: str, **kwargs):
         """Безопасно обновляет статус задачи в базе данных"""
@@ -779,15 +840,19 @@ class WorkingMeetingWebApp:
                 return jsonify({'error': 'User authentication failed'}), 401
             
             templates = self.get_available_templates()
+            available_models = self.get_available_models()
+            default_model = self.get_default_model()
             max_size_mb = self.app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
-            
+
             # Получаем информацию о пользователе для отображения
             user_info = get_current_user()
             user_name = self.user_manager.get_user_display_name(user_info) if user_info else "Unknown User"
-            
+
             return render_template_string(
                 self.templates.get_index_template(),
                 templates=templates,
+                available_models=available_models,
+                default_model=default_model,
                 max_size_mb=max_size_mb,
                 accept_string=self.accept_string,
                 formats_display=self.formats_display,
@@ -814,8 +879,9 @@ class WorkingMeetingWebApp:
                 
                 file = request.files['file']
                 template_type = request.form.get('template', 'standard')
-                
-                logger.info(f"📤 Получен файл для загрузки: '{file.filename}' (пользователь: {user_id})")
+                selected_model = self.resolve_model(request.form.get('model'))
+
+                logger.info(f"📤 Получен файл для загрузки: '{file.filename}' (пользователь: {user_id}, модель: {selected_model})")
                 
                 if file.filename == '':
                     flash('Файл не выбран', 'error')
@@ -853,7 +919,8 @@ class WorkingMeetingWebApp:
                     'status': 'uploaded',
                     'progress': 0,
                     'message': 'Файл загружен, ожидает обработки',
-                    'file_path': str(file_path)
+                    'file_path': str(file_path),
+                    'metadata': {'model': selected_model}
                 }
                 
                 if not self.create_job_in_db(job_data):
@@ -888,12 +955,16 @@ class WorkingMeetingWebApp:
                 return redirect(url_for('index'))
             
             templates = self.get_available_templates()
-            
+            available_models = self.get_available_models()
+            current_model = self.get_job_model(job)
+
             return render_template_string(
                 self.templates.get_status_template(),
                 job_id=job_id,
                 job=job,
-                templates=templates
+                templates=templates,
+                available_models=available_models,
+                current_model=current_model
             )
         
         @self.app.route('/api/status/<job_id>')
@@ -1012,18 +1083,23 @@ class WorkingMeetingWebApp:
             if not new_template:
                 flash('Не выбран шаблон', 'error')
                 return redirect(url_for('status', job_id=job_id))
-            
+
+            # Модель: либо явно выбрана в форме, либо берём ту же, что и у исходной задачи
+            selected_model = self.resolve_model(
+                request.form.get('model') or self.get_job_model(job)
+            )
+
             # Проверяем наличие транскрипта
             transcript_file = job.get('transcript_file')
             if not transcript_file or not os.path.exists(transcript_file):
                 flash('Файл транскрипта не найден', 'error')
                 return redirect(url_for('status', job_id=job_id))
-            
+
             try:
                 # Создаем новый ID для задачи генерации протокола
                 protocol_job_id = f"{job_id}_protocol_{new_template}"
                 user_id = get_current_user_id()
-                
+
                 # Создаем задачу генерации протокола в базе данных
                 protocol_job_data = {
                     'job_id': protocol_job_id,
@@ -1033,7 +1109,8 @@ class WorkingMeetingWebApp:
                     'status': 'processing',
                     'progress': 0,
                     'message': f'Генерация протокола в шаблоне "{new_template}"...',
-                    'transcript_file': transcript_file
+                    'transcript_file': transcript_file,
+                    'metadata': {'model': selected_model}
                 }
                 
                 if not self.create_job_in_db(protocol_job_data):
@@ -1042,8 +1119,8 @@ class WorkingMeetingWebApp:
                 
                 # Запускаем генерацию протокола в отдельном потоке
                 self.executor.submit(self.generate_protocol_sync, protocol_job_id, transcript_file, new_template)
-                
-                flash(f'Запущена генерация протокола в шаблоне "{new_template}"', 'success')
+
+                flash(f'Запущена генерация протокола в шаблоне "{new_template}" (модель: {selected_model})', 'success')
                 return redirect(url_for('status', job_id=protocol_job_id))
                 
             except Exception as e:
@@ -1750,11 +1827,14 @@ class WorkingMeetingWebApp:
             output_dir = user_output_dir / job_id
             output_dir.mkdir(parents=True, exist_ok=True)
             
+            job_model = self.get_job_model(job)
+            logger.info(f"🤖 Модель для задачи {job_id}: {job_model}")
+
             processor = MeetingProcessor(
                 deepgram_api_key=self.deepgram_key,
                 claude_api_key=self.claude_key,
                 deepgram_timeout=self.processing_settings.get('deepgram_timeout_seconds', 300),
-                claude_model=self.processing_settings.get('claude_model', 'claude-sonnet-4-20250514'),
+                claude_model=job_model,
                 chunk_duration_minutes=self.processing_settings.get('chunk_duration_minutes', 15),
                 template_type=job['template'],
                 progress_callback=progress_callback,
@@ -1901,17 +1981,18 @@ class WorkingMeetingWebApp:
             output_dir.mkdir(exist_ok=True)
             
             # Создаем процессор только для генерации протокола
+            job_model = self.get_job_model(job)
             logger.info(f"🤖 Создание MeetingProcessor для генерации протокола")
             logger.info(f"   Claude API ключ: {'✅ установлен' if self.claude_key else '❌ отсутствует'}")
-            logger.info(f"   Модель Claude: {self.processing_settings.get('claude_model', 'claude-sonnet-4-20250514')}")
+            logger.info(f"   Модель: {job_model}")
             logger.info(f"   Тип шаблона: {template_type}")
             logger.info(f"   Файл транскрипта: {transcript_file}")
             logger.info(f"   Выходная директория: {output_dir}")
-            
+
             processor = MeetingProcessor(
                 deepgram_api_key="dummy",  # Не нужен для генерации протокола
                 claude_api_key=self.claude_key,
-                claude_model=self.processing_settings.get('claude_model', 'claude-sonnet-4-20250514'),
+                claude_model=job_model,
                 template_type=template_type,
                 templates_config_file=self.config.get("paths", {}).get("templates_config", "templates_config.json"),
                 team_config_file=self.config.get("paths", {}).get("team_config", "team_config.json"),

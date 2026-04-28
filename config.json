@@ -47,7 +47,7 @@
     "keep_audio_file": false,
     "language": "multi",
     "deepgram_model": "nova-3",
-    "claude_model": "anthropic/claude-sonnet-4.5",
+    "claude_model": "anthropic/claude-sonnet-4.6",
     "deepgram_timeout_seconds": 300,
     "chunk_duration_minutes": 120,
     "max_file_size_mb": 200,
@@ -90,14 +90,6 @@
     "detect_language": true
   },
 
-  "template_settings": {
-    "auto_detect_meeting_type": false,
-    "include_technical_info": false,
-    "include_file_datetime": false,
-    "max_tokens": 3000,
-    "fallback_template": "standard"
-  },
-
   "supported_formats": {
     "video": [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".webm"],
     "native_audio": [".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg"],
@@ -105,21 +97,13 @@
   },
 
   "claude_models": {
-    "sonnet-4": "claude-sonnet-4-20250514", 
+    "sonnet-4": "claude-sonnet-4-20250514",
     "anthropic/claude-sonnet-4.5": "anthropic/claude-sonnet-4.5"
   },
 
-  "template_examples": {
-    "standard": "Универсальный шаблон для любых встреч",
-    "business": "Официальный протокол для деловых встреч",
-    "project": "Фокус на управлении проектами и задачами",
-    "standup": "Краткий формат для ежедневных стендапов",
-    "interview": "Структурированный отчет об интервью",
-    "brainstorm": "Организация идей и креативных сессий",
-    "review": "Ретроспективы и анализ результатов",
-    "planning": "Стратегическое планирование и постановка целей",
-    "technical": "Технические обсуждения и архитектурные решения",
-    "sales": "Встречи по продажам и работе с клиентами",
-    "auto": "Автоматическое определение типа встречи"
+  "available_models": {
+    "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6 — баланс качества и скорости",
+    "anthropic/claude-haiku-4.5": "Claude Haiku 4.5 — быстрая обработка",
+    "moonshotai/kimi-k2.6": "Kimi K2.6 — альтернатива от Moonshot AI"
   }
 }

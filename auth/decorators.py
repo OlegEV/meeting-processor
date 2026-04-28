@@ -4,6 +4,7 @@
 """
 
 import logging
+import os
 from functools import wraps
 from typing import Dict, Any, Optional, Callable
 from flask import request, jsonify, redirect, url_for, flash
@@ -12,6 +13,24 @@ from .token_validator import TokenValidator, TokenValidationError
 from .user_context import UserContext
 
 logger = logging.getLogger(__name__)
+
+# Имя переменной окружения, которой можно перекрыть auth.debug_mode из config.json.
+# Удобно для локального запуска: вместо правки конфига выставляется AUTH_DEBUG_MODE=true в .env.
+AUTH_DEBUG_ENV_VAR = "AUTH_DEBUG_MODE"
+
+
+def _resolve_debug_mode(config_value: bool) -> bool:
+    """Возвращает True, если включён отладочный режим аутентификации.
+
+    Приоритет: переменная окружения AUTH_DEBUG_MODE > значение из config.json.
+    Truthy-значения env-переменной: 1, true, yes, on (регистронезависимо).
+    Любое другое значение env-переменной (включая "false"/"0") явно выключает режим.
+    Если env-переменная не задана — используется значение из config.
+    """
+    env_value = os.getenv(AUTH_DEBUG_ENV_VAR)
+    if env_value is None:
+        return bool(config_value)
+    return env_value.strip().lower() in ("1", "true", "yes", "on")
 
 class AuthDecorators:
     """Класс с декораторами для аутентификации"""
@@ -29,15 +48,16 @@ class AuthDecorators:
         
         # Настройки отладочного режима
         auth_config = self.config.get('auth', {})
-        self.debug_mode = auth_config.get('debug_mode', False)
+        self.debug_mode = _resolve_debug_mode(auth_config.get('debug_mode', False))
         self.debug_user = auth_config.get('debug_user', {
             'user_id': 'debug_user',
             'email': 'debug@localhost',
             'name': 'Debug User'
         })
-        
+
         if self.debug_mode:
-            logger.warning("🔧 ОТЛАДОЧНЫЙ РЕЖИМ АКТИВЕН - аутентификация отключена!")
+            source = "AUTH_DEBUG_MODE env" if os.getenv(AUTH_DEBUG_ENV_VAR) else "config.json"
+            logger.warning(f"🔧 ОТЛАДОЧНЫЙ РЕЖИМ АКТИВЕН ({source}) — аутентификация отключена!")
     
     def require_auth(self, redirect_on_failure: bool = True):
         """
@@ -261,7 +281,7 @@ def create_auth_middleware(token_validator: TokenValidator, config: Optional[Dic
     """
     config = config or {}
     auth_config = config.get('auth', {})
-    debug_mode = auth_config.get('debug_mode', False)
+    debug_mode = _resolve_debug_mode(auth_config.get('debug_mode', False))
     debug_user = auth_config.get('debug_user', {
         'user_id': 'debug_user',
         'email': 'debug@localhost',

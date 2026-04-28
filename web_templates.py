@@ -61,6 +61,20 @@ class WebTemplates:
                             </div>
 
                             <div class="mb-3">
+                                <label for="model" class="form-label">Модель OpenRouter:</label>
+                                <select class="form-select" name="model" required>
+                                    {% for model_id, description in available_models.items() %}
+                                        <option value="{{ model_id }}" {% if model_id == default_model %}selected{% endif %}>
+                                            {{ description }} ({{ model_id }})
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">
+                                    Используется для генерации протокола. Транскрипция (Deepgram) от выбора не зависит.
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
                                 <label for="file" class="form-label">Выберите файл:</label>
                                 <input type="file" class="form-control" id="fileInput" name="file" accept="{{ accept_string }}" required>
                                 <div class="form-text">
@@ -289,7 +303,7 @@ class WebTemplates:
                                 <div class="card-body">
                                     <form method="POST" action="/generate_protocol/{{ job_id }}">
                                         <div class="row align-items-end">
-                                            <div class="col-md-8">
+                                            <div class="col-md-6">
                                                 <label for="new_template" class="form-label">Выберите новый шаблон:</label>
                                                 <select class="form-select" name="new_template" required>
                                                     {% for template_id, description in templates.items() %}
@@ -302,6 +316,16 @@ class WebTemplates:
                                                 </select>
                                             </div>
                                             <div class="col-md-4">
+                                                <label for="model" class="form-label">Модель:</label>
+                                                <select class="form-select" name="model" required>
+                                                    {% for model_id, description in available_models.items() %}
+                                                        <option value="{{ model_id }}" {% if model_id == current_model %}selected{% endif %}>
+                                                            {{ description }}
+                                                        </option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div class="col-md-2">
                                                 <button type="submit" class="btn btn-warning w-100">
                                                     <i class="fas fa-cogs me-2"></i>Сгенерировать
                                                 </button>

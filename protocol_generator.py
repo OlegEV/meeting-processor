@@ -209,18 +209,21 @@ class ProtocolGenerator:
         
         return sum(confidence_scores.values()) / len(confidence_scores)
     
-    def _get_openrouter_model_name(self, anthropic_model: str) -> str:
+    def _get_openrouter_model_name(self, model: str) -> str:
         """
-        Преобразует название модели Anthropic в формат OpenRouter
-        
-        Args:
-            anthropic_model: Название модели в формате Anthropic
-            
-        Returns:
-            Название модели в формате OpenRouter
+        Возвращает имя модели в формате OpenRouter.
+
+        OpenRouter использует формат "provider/model" (например,
+        "anthropic/claude-sonnet-4.6", "moonshotai/kimi-k2.6"). Если входная
+        строка уже содержит "/", считаем её OpenRouter-форматом и пропускаем
+        без изменений. Если это устаревший идентификатор Anthropic
+        (например, "claude-sonnet-4-20250514") — переводим по словарю.
         """
-        model_mapping = {
-            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4", 
-            "anthropic/claude-sonnet-4.5": "anthropic/claude-sonnet-4.5"
+        if not model:
+            return "anthropic/claude-sonnet-4.6"
+        if "/" in model:
+            return model
+        legacy_mapping = {
+            "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4.6",
         }
-        return model_mapping.get(anthropic_model, "anthropic/claude-sonnet-4.5")
+        return legacy_mapping.get(model, "anthropic/claude-sonnet-4.6")
