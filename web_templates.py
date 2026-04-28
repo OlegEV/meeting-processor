@@ -319,7 +319,7 @@ class WebTemplates:
                                                 <label for="model" class="form-label">Модель:</label>
                                                 <select class="form-select" name="model" required>
                                                     {% for model_id, description in available_models.items() %}
-                                                        <option value="{{ model_id }}" {% if model_id == current_model %}selected{% endif %}>
+                                                        <option value="{{ model_id }}" {% if model_id == default_model %}selected{% endif %}>
                                                             {{ description }}
                                                         </option>
                                                     {% endfor %}

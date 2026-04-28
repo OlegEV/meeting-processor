@@ -53,7 +53,7 @@
     "keep_audio_file": false,
     "language": "multi",
     "deepgram_model": "nova-3",
-    "claude_model": "anthropic/claude-sonnet-4.6",
+    "claude_model": "moonshotai/kimi-k2.6",
     "deepgram_timeout_seconds": 300,
     "chunk_duration_minutes": 120,
     "max_file_size_mb": 200,
