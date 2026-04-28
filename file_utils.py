@@ -165,3 +165,46 @@ class FileUtils:
                 pass
         elif temp_audio_created and keep_audio_file:
             print(f"💾 Аудиофайл сохранен: {audio_file_path}")
+
+    @staticmethod
+    def cleanup_temp_dir(temp_dir: str):
+        """Удаляет каталог temp_dir со всем содержимым (используется по завершении задачи)."""
+        import shutil
+        try:
+            path = Path(temp_dir)
+            if path.exists():
+                shutil.rmtree(path, ignore_errors=True)
+        except Exception as e:
+            print(f"⚠️ Не удалось удалить временный каталог {temp_dir}: {e}")
+
+    @staticmethod
+    def cleanup_old_temp_entries(base_dir: str, max_age_seconds: int) -> int:
+        """Удаляет содержимое base_dir старше max_age_seconds.
+
+        Возвращает число удалённых записей верхнего уровня (файлов и подкаталогов).
+        """
+        import shutil
+        import time
+
+        base = Path(base_dir)
+        if not base.exists():
+            return 0
+
+        cutoff = time.time() - max_age_seconds
+        removed = 0
+        for entry in base.iterdir():
+            try:
+                mtime = entry.stat().st_mtime
+            except OSError:
+                continue
+            if mtime > cutoff:
+                continue
+            try:
+                if entry.is_dir():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink()
+                removed += 1
+            except Exception as e:
+                print(f"⚠️ Не удалось удалить {entry}: {e}")
+        return removed

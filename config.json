@@ -36,6 +36,12 @@
     "structure": "user_based"
   },
 
+  "temp_files": {
+    "base_path": "temp_files",
+    "cleanup_max_age_hours": 24,
+    "cleanup_interval_minutes": 60
+  },
+
   "openrouter": {
     "base_url": "https://openrouter.ai/api/v1",
     "timeout": 60.0,
@@ -104,6 +110,9 @@
   "available_models": {
     "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6 — баланс качества и скорости",
     "anthropic/claude-haiku-4.5": "Claude Haiku 4.5 — быстрая обработка",
-    "moonshotai/kimi-k2.6": "Kimi K2.6 — альтернатива от Moonshot AI"
+    "moonshotai/kimi-k2.6": "Kimi K2.6 — альтернатива от Moonshot AI",
+    "qwen/qwen3.6-plus": "Qwen 3.6 Plus — модель от Alibaba",
+    "z-ai/glm-5.1": "GLM 5.1 — модель от Z.AI",
+    "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro — модель от DeepSeek"
   }
 }

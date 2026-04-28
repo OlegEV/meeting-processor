@@ -36,6 +36,7 @@ except ImportError:
 try:
     from meeting_processor import MeetingProcessor
     from config_loader import ConfigLoader
+    from file_utils import FileUtils
     from web_templates import WebTemplates
     from auth import create_auth_system, require_auth, get_current_user_id, get_current_user, is_authenticated
     from database import create_database_manager
@@ -172,6 +173,21 @@ class WorkingMeetingWebApp:
         self.output_folder = Path("web_output")
         self.upload_folder.mkdir(exist_ok=True)
         self.output_folder.mkdir(exist_ok=True)
+
+        temp_files_config = self.config.get('temp_files', {})
+        self.temp_folder = Path(temp_files_config.get('base_path', 'temp_files'))
+        self.temp_folder.mkdir(exist_ok=True)
+        self.temp_max_age_seconds = int(temp_files_config.get('cleanup_max_age_hours', 24)) * 3600
+        self.temp_cleanup_interval_seconds = int(temp_files_config.get('cleanup_interval_minutes', 60)) * 60
+
+        # Запускаем фоновую периодическую очистку temp_files
+        self._temp_cleanup_stop = threading.Event()
+        self._temp_cleanup_thread = threading.Thread(
+            target=self._temp_cleanup_loop,
+            name="TempFilesCleanup",
+            daemon=True,
+        )
+        self._temp_cleanup_thread.start()
         
         # Инициализируем шаблоны
         self.templates = WebTemplates()
@@ -458,11 +474,33 @@ class WorkingMeetingWebApp:
         """Получает директорию для файлов пользователя"""
         user_files_config = self.config.get('user_files', {})
         base_path = user_files_config.get('base_path', 'web_output')
-        
+
         if user_files_config.get('structure') == 'user_based':
             return Path(base_path) / user_id
         else:
             return Path(base_path)
+
+    def get_job_temp_dir(self, job_id: str) -> Path:
+        """Возвращает каталог для временных файлов конкретной задачи."""
+        return self.temp_folder / job_id
+
+    def _temp_cleanup_loop(self):
+        """Фоновый цикл периодической очистки устаревших временных файлов."""
+        # Первая чистка — сразу при старте, чтобы убрать остатки прошлых запусков.
+        while not self._temp_cleanup_stop.is_set():
+            try:
+                removed = FileUtils.cleanup_old_temp_entries(
+                    str(self.temp_folder), self.temp_max_age_seconds
+                )
+                if removed:
+                    logger.info(
+                        f"🧹 Очистка temp_files: удалено {removed} устаревших записей "
+                        f"(старше {self.temp_max_age_seconds // 3600} ч)"
+                    )
+            except Exception as e:
+                logger.warning(f"Ошибка периодической очистки temp_files: {e}")
+            # Ждём интервал, выходим раньше, если приложение останавливается
+            self._temp_cleanup_stop.wait(self.temp_cleanup_interval_seconds)
     
     def ensure_user_exists(self) -> Optional[Dict[str, Any]]:
         """Обеспечивает существование пользователя в базе данных"""
@@ -1826,7 +1864,11 @@ class WorkingMeetingWebApp:
             user_output_dir = self.get_user_output_dir(job['user_id'])
             output_dir = user_output_dir / job_id
             output_dir.mkdir(parents=True, exist_ok=True)
-            
+
+            # Отдельная директория для временных файлов (.wav, chunk'и) — вне web_output
+            job_temp_dir = self.get_job_temp_dir(job_id)
+            job_temp_dir.mkdir(parents=True, exist_ok=True)
+
             job_model = self.get_job_model(job)
             logger.info(f"🤖 Модель для задачи {job_id}: {job_model}")
 
@@ -1841,14 +1883,15 @@ class WorkingMeetingWebApp:
                 deepgram_language=self.processing_settings.get('language', 'ru'),
                 deepgram_model=self.processing_settings.get('deepgram_model', 'nova-2')
             )
-            
+
             # Основная обработка
             success = processor.process_meeting(
                 input_file_path=job['file_path'],
                 output_dir=str(output_dir),
                 name_mapping=None,
                 keep_audio_file=False,
-                template_type=job['template']
+                template_type=job['template'],
+                temp_dir=str(job_temp_dir)
             )
             
             if success:
@@ -1938,6 +1981,15 @@ class WorkingMeetingWebApp:
                     logger.debug(f"Удален временный файл: {job['file_path']}")
             except Exception as e:
                 logger.warning(f"Не удалось удалить временный файл: {e}")
+
+            # Очищаем временный каталог задачи (если был создан)
+            try:
+                job_temp_dir = self.get_job_temp_dir(job_id)
+                if job_temp_dir.exists():
+                    FileUtils.cleanup_temp_dir(str(job_temp_dir))
+                    logger.debug(f"Очищен временный каталог задачи: {job_temp_dir}")
+            except Exception as e:
+                logger.warning(f"Не удалось очистить временный каталог задачи {job_id}: {e}")
     
     def generate_protocol_sync(self, job_id: str, transcript_file: str, template_type: str):
         """Синхронная генерация протокола из транскрипта в отдельном потоке"""
@@ -2067,6 +2119,11 @@ class WorkingMeetingWebApp:
         try:
             self.app.run(host=host, port=port, debug=debug, threaded=True)
         finally:
+            # Останавливаем фоновую очистку temp_files
+            try:
+                self._temp_cleanup_stop.set()
+            except Exception:
+                pass
             # Закрываем пул потоков при завершении
             self.executor.shutdown(wait=True)
 
@@ -2088,6 +2145,7 @@ def main():
         os.makedirs("logs", exist_ok=True)
         os.makedirs("web_uploads", exist_ok=True)
         os.makedirs("web_output", exist_ok=True)
+        os.makedirs("temp_files", exist_ok=True)
         
         # Проверяем отладочный режим аутентификации
         from config_loader import ConfigLoader
@@ -2128,6 +2186,7 @@ def main():
         print("🔑 API ключи: переменные окружения")
         print("📁 Загрузки: web_uploads/")
         print("📄 Результаты: web_output/")
+        print("🗂️ Временные файлы: temp_files/ (автоочистка)")
         print("📊 Логи: logs/web_app.log")
         print("🧵 Многопоточная обработка: ✅")
         print("🔄 Автоочистка файлов: ✅")

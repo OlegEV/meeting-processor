@@ -11,6 +11,7 @@ services:
       - ./logs:/app/logs
       - ./web_uploads:/app/web_uploads
       - ./web_output:/app/web_output
+      - ./temp_files:/app/temp_files
       - ./meeting_processor.db:/app/meeting_processor.db
       - ./config.json:/app/config.json:ro
       - ./templates_config.json:/app/templates_config.json:ro

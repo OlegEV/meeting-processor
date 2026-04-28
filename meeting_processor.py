@@ -169,57 +169,65 @@ class MeetingProcessor:
         if deepgram_options:
             print(f"   🎤 Опции Deepgram: {', '.join([k for k, v in deepgram_options.items() if v])}")
     
-    def process_meeting(self, 
-                       input_file_path: str, 
+    def process_meeting(self,
+                       input_file_path: str,
                        output_dir: str = "output",
                        name_mapping: Optional[Dict[str, str]] = None,
                        keep_audio_file: bool = False,
-                       template_type: str = None) -> bool:
+                       template_type: str = None,
+                       temp_dir: Optional[str] = None) -> bool:
         """
-        Полный цикл обработки встречи с идентификацией команды
+        Полный цикл обработки встречи с идентификацией команды.
+
+        temp_dir — отдельный каталог для промежуточных аудио-файлов (.wav и chunk'и).
+        Если не задан, используется output_dir (legacy-поведение).
         """
         try:
             self._update_progress(5, "Инициализация обработки...")
-            
+
             # Создаем выходную директорию
             Path(output_dir).mkdir(exist_ok=True)
-            
+            if temp_dir:
+                Path(temp_dir).mkdir(parents=True, exist_ok=True)
+
             # Получаем информацию о файле
             self._update_progress(10, "Анализ входного файла...")
             file_type, file_ext, file_info = self.audio_processor.get_audio_info(input_file_path)
             file_datetime_info = FileUtils.get_file_datetime_info(input_file_path)
-            
+
             # Подготавливаем пути для выходных файлов
             input_name = Path(input_file_path).stem
             transcript_path = f"{output_dir}/{input_name}_transcript.txt"
             summary_path = f"{output_dir}/{input_name}_summary.md"
             team_info_path = f"{output_dir}/{input_name}_team_info.txt"
-            
+
             print(f"\n🎯 НАЧИНАЮ ОБРАБОТКУ ВСТРЕЧИ")
             print("=" * 50)
             print(f"📄 Файл: {input_file_path}")
             print(f"📊 Тип: {file_type} ({file_ext})")
             print(f"ℹ️  {file_info}")
             print(f"📅 Дата: {file_datetime_info['datetime_full']} ({file_datetime_info['weekday_ru']})")
-            
+
             # Определяем тип шаблона
             if template_type is None:
                 template_type = self.template_type
             print(f"📝 Шаблон: {template_type}")
-            
+
             # Подготавливаем аудио для транскрипции
             self._update_progress(15, "Подготовка аудио файла...")
             audio_file_for_deepgram, temp_audio_created = self.audio_processor.prepare_audio_file(
-                input_file_path, file_type, output_dir, input_name
+                input_file_path, file_type, output_dir, input_name, temp_dir=temp_dir
             )
-            
+
             if not audio_file_for_deepgram:
                 self._update_progress(0, "Ошибка подготовки аудио файла")
                 return False
-            
+
             # Транскрибируем аудио
             self._update_progress(25, "Транскрибирование аудио...")
-            transcript = self.transcription_service.transcribe_audio(audio_file_for_deepgram, self.chunk_duration_minutes)
+            transcript = self.transcription_service.transcribe_audio(
+                audio_file_for_deepgram, self.chunk_duration_minutes, chunk_output_dir=temp_dir
+            )
             if transcript is None:
                 self._update_progress(0, "Ошибка транскрибирования аудио")
                 return False
@@ -429,43 +437,50 @@ class MeetingProcessor:
         
         return modified_transcript
     
-    def transcribe_only(self, 
-                       input_file_path: str, 
+    def transcribe_only(self,
+                       input_file_path: str,
                        output_dir: str = "output",
-                       keep_audio_file: bool = False) -> bool:
+                       keep_audio_file: bool = False,
+                       temp_dir: Optional[str] = None) -> bool:
         """
-        Только транскрибирует аудио без генерации протокола
+        Только транскрибирует аудио без генерации протокола.
+
+        temp_dir — отдельный каталог для промежуточных аудио-файлов (.wav и chunk'и).
         """
         try:
             self._update_progress(10, "Инициализация транскрибирования...")
-            
+
             # Создаем выходную директорию
             Path(output_dir).mkdir(exist_ok=True)
-            
+            if temp_dir:
+                Path(temp_dir).mkdir(parents=True, exist_ok=True)
+
             # Получаем информацию о файле
             self._update_progress(20, "Анализ входного файла...")
             file_type, file_ext, file_info = self.audio_processor.get_audio_info(input_file_path)
             file_datetime_info = FileUtils.get_file_datetime_info(input_file_path)
-            
+
             # Подготавливаем пути для выходных файлов
             input_name = Path(input_file_path).stem
             transcript_path = f"{output_dir}/{input_name}_transcript.txt"
-            
+
             print(f"🎤 Транскрибирование: {input_file_path}")
-            
+
             # Подготавливаем аудио для транскрипции
             self._update_progress(30, "Подготовка аудио файла...")
             audio_file_for_deepgram, temp_audio_created = self.audio_processor.prepare_audio_file(
-                input_file_path, file_type, output_dir, input_name
+                input_file_path, file_type, output_dir, input_name, temp_dir=temp_dir
             )
-            
+
             if not audio_file_for_deepgram:
                 self._update_progress(0, "Ошибка подготовки аудио файла")
                 return False
-            
+
             # Транскрибируем аудио
             self._update_progress(50, "Транскрибирование аудио...")
-            transcript = self.transcription_service.transcribe_audio(audio_file_for_deepgram, self.chunk_duration_minutes)
+            transcript = self.transcription_service.transcribe_audio(
+                audio_file_for_deepgram, self.chunk_duration_minutes, chunk_output_dir=temp_dir
+            )
             if transcript is None:
                 self._update_progress(0, "Ошибка транскрибирования аудио")
                 return False

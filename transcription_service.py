@@ -362,31 +362,38 @@ class TranscriptionService:
             print(f"❌ Ошибка при транскрипции частей: {e}")
             return None
 
-    def transcribe_audio(self, audio_path: str, chunk_duration_minutes: int = 10) -> Optional[str]:
-        """Транскрибирует аудио файл"""
+    def transcribe_audio(self, audio_path: str, chunk_duration_minutes: int = 10,
+                         chunk_output_dir: Optional[str] = None) -> Optional[str]:
+        """Транскрибирует аудио файл.
+
+        chunk_output_dir — каталог для chunk-файлов при разбиении. Если не задан,
+        chunk-файлы создаются рядом с исходным аудио (legacy).
+        """
         try:
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             print(f"📊 Размер аудиофайла: {file_size_mb:.1f} MB")
-            
+
             # Получаем длительность файла
             import subprocess
             import json
-            
+
             cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', audio_path]
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 info = json.loads(result.stdout)
                 duration_minutes = float(info['format']['duration']) / 60
                 print(f"⏱️ Длительность: {duration_minutes:.1f} минут")
-                
+
                 # Разбиваем файл на части, если он слишком большой или длинный
                 if duration_minutes > 15 or file_size_mb > 25:
                     print("🔪 Файл слишком длинный/большой, разбиваю на части...")
                     from audio_processor import AudioProcessor
                     audio_proc = AudioProcessor()
-                    chunk_paths = audio_proc.split_audio_file(audio_path, chunk_duration_minutes)
-                    
+                    chunk_paths = audio_proc.split_audio_file(
+                        audio_path, chunk_duration_minutes, output_dir=chunk_output_dir
+                    )
+
                     if chunk_paths:
                         return self.transcribe_audio_chunks(chunk_paths, chunk_duration_minutes)
                     else:

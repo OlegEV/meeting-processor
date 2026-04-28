@@ -182,8 +182,13 @@ class AudioProcessor:
             print(f"❌ Ошибка при извлечении аудио: {e}")
             return False
 
-    def split_audio_file(self, audio_path: str, chunk_duration_minutes: int = 10) -> List[str]:
-        """Разбивает длинный аудиофайл на части"""
+    def split_audio_file(self, audio_path: str, chunk_duration_minutes: int = 10,
+                         output_dir: Optional[str] = None) -> List[str]:
+        """Разбивает длинный аудиофайл на части.
+
+        output_dir — каталог для chunk-файлов. Если не задан, используется родительский каталог
+        исходного файла (legacy-поведение).
+        """
         try:
             print(f"✂️ Разбиваю аудиофайл на части по {chunk_duration_minutes} минут...")
             
@@ -206,8 +211,12 @@ class AudioProcessor:
                 return []
             
             print(f"📁 Исходный файл: {audio_path_obj.name} ({file_size / (1024*1024):.1f} MB)")
-            
-            audio_dir = audio_path_obj.parent
+
+            if output_dir:
+                audio_dir = Path(output_dir)
+                audio_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                audio_dir = audio_path_obj.parent
             audio_name = audio_path_obj.stem
             original_extension = audio_path_obj.suffix.lower()
             chunk_duration_seconds = chunk_duration_minutes * 60
@@ -310,26 +319,33 @@ class AudioProcessor:
             print(f"❌ Ошибка при разбивке аудио: {e}")
             return []
     
-    def prepare_audio_file(self, input_file_path: str, file_type: str, output_dir: str, input_name: str) -> Tuple[Optional[str], bool]:
-        """Подготавливает аудиофайл для транскрипции"""
+    def prepare_audio_file(self, input_file_path: str, file_type: str, output_dir: str, input_name: str,
+                           temp_dir: Optional[str] = None) -> Tuple[Optional[str], bool]:
+        """Подготавливает аудиофайл для транскрипции.
+
+        temp_dir — каталог для промежуточных .wav файлов. Если не задан, используется output_dir
+        (legacy-поведение для CLI).
+        """
         temp_audio_created = False
-        
+        target_dir = temp_dir or output_dir
+        Path(target_dir).mkdir(parents=True, exist_ok=True)
+
         if file_type == "native_audio":
             print("🚀 Используется нативная поддержка Deepgram - конвертация не требуется!")
             return input_file_path, temp_audio_created
-            
+
         elif file_type == "convert_audio":
-            audio_file_for_deepgram = f"{output_dir}/{input_name}.wav"
+            audio_file_for_deepgram = f"{target_dir}/{input_name}.wav"
             if not self.process_audio_file(input_file_path, audio_file_for_deepgram):
                 return None, False
             return audio_file_for_deepgram, True
-            
+
         elif file_type == "video":
-            audio_file_for_deepgram = f"{output_dir}/{input_name}.wav"
+            audio_file_for_deepgram = f"{target_dir}/{input_name}.wav"
             if not self.extract_audio_from_video(input_file_path, audio_file_for_deepgram):
                 return None, False
             return audio_file_for_deepgram, True
-        
+
         else:
             print(f"❌ Неподдерживаемый тип файла: {file_type}")
             return None, False

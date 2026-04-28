@@ -39,7 +39,7 @@ COPY quick_meeting_checklist.md ./
 COPY recording_setup_guide.md ./
 
 # Создаем необходимые директории
-RUN mkdir -p logs web_uploads web_output && \
+RUN mkdir -p logs web_uploads web_output temp_files && \
     chown -R app:app /app
 
 # Переключаемся на пользователя app
