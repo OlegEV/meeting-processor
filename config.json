@@ -53,7 +53,7 @@
     "keep_audio_file": false,
     "language": "multi",
     "deepgram_model": "nova-3",
-    "claude_model": "moonshotai/kimi-k2.6",
+    "claude_model": "qwen/qwen3.6-plus",
     "deepgram_timeout_seconds": 300,
     "chunk_duration_minutes": 120,
     "max_file_size_mb": 200,
@@ -102,17 +102,12 @@
     "convert_audio": [".wma", ".opus"]
   },
 
-  "claude_models": {
-    "sonnet-4": "claude-sonnet-4-20250514",
-    "anthropic/claude-sonnet-4.5": "anthropic/claude-sonnet-4.5"
-  },
-
   "available_models": {
-    "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6 — баланс качества и скорости",
-    "anthropic/claude-haiku-4.5": "Claude Haiku 4.5 — быстрая обработка",
-    "moonshotai/kimi-k2.6": "Kimi K2.6 — альтернатива от Moonshot AI",
-    "qwen/qwen3.6-plus": "Qwen 3.6 Plus — модель от Alibaba",
-    "z-ai/glm-5.1": "GLM 5.1 — модель от Z.AI",
-    "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro — модель от DeepSeek"
+    "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
+    "anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
+    "moonshotai/kimi-k2.6": "Kimi K2.6",
+    "qwen/qwen3.6-plus": "Qwen 3.6 Plus",
+    "z-ai/glm-5.1": "GLM 5.1",
+    "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro"
   }
 }

@@ -374,20 +374,16 @@ class WorkingMeetingWebApp:
         }
 
     def get_available_models(self) -> Dict[str, str]:
-        """Возвращает доступные модели OpenRouter (id -> человеко-читаемое описание)"""
-        return self.config.get("available_models", {
-            "moonshotai/kimi-k2.6": "Kimi K2.6",
-            "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
-            "anthropic/claude-haiku-4.5": "Claude Haiku 4.5"
-        })
+        """Возвращает доступные модели OpenRouter (id -> человеко-читаемое описание) из config.available_models"""
+        return self.config.get("available_models", {})
 
     def get_default_model(self) -> str:
-        """Возвращает модель по умолчанию (из settings, с fallback на первую из available_models)"""
+        """Возвращает модель по умолчанию из settings.claude_model; если её нет в available_models — первую из списка."""
         default = self.processing_settings.get('claude_model')
         available = self.get_available_models()
         if default and default in available:
             return default
-        return next(iter(available), 'moonshotai/kimi-k2.6')
+        return next(iter(available), '')
 
     def resolve_model(self, requested: Optional[str]) -> str:
         """Валидирует выбранную пользователем модель, возвращает её или модель по умолчанию"""
@@ -995,7 +991,6 @@ class WorkingMeetingWebApp:
             templates = self.get_available_templates()
             available_models = self.get_available_models()
             current_model = self.get_job_model(job)
-            default_model = self.get_default_model()
 
             return render_template_string(
                 self.templates.get_status_template(),
@@ -1003,8 +998,7 @@ class WorkingMeetingWebApp:
                 job=job,
                 templates=templates,
                 available_models=available_models,
-                current_model=current_model,
-                default_model=default_model
+                current_model=current_model
             )
         
         @self.app.route('/api/status/<job_id>')

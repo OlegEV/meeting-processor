@@ -1,7 +1,7 @@
 # Telegram Bot
 python-telegram-bot==20.7
 deepgram-sdk>=5.0.0
-openai>=1.0.0
+openai>=2.37,<3
 requests>=2.31.0
 pathlib2>=2.3.7
 python-dateutil>=2.8.2

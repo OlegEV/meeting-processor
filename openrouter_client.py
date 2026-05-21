@@ -3,11 +3,14 @@
 Клиент для работы с OpenRouter API
 """
 
+import logging
 from typing import Dict, Optional, List
 import httpx
 import openai
 
 from config_loader import ConfigLoader
+
+logger = logging.getLogger(__name__)
 
 class OpenRouterClient:
     """Клиент для работы с OpenRouter API"""
@@ -61,12 +64,71 @@ class OpenRouterClient:
                 model=self.model,
                 messages=messages,
                 max_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                # Отключаем режим рассуждений для всех моделей (Kimi K2 thinking,
+                # DeepSeek-R1, GPT-5, Claude extended thinking и т.п.), чтобы
+                # экономить токены и получать ответ сразу в content.
+                extra_body={"reasoning": {"enabled": False, "exclude": True}},
             )
-            
-            return response.choices[0].message.content
-            
+
+            if not response.choices:
+                logger.error(
+                    "❌ OpenRouter вернул пустой список choices (модель %s)", self.model
+                )
+                print("❌ OpenRouter вернул пустой список choices")
+                return None
+
+            choice = response.choices[0]
+            message = choice.message
+            finish_reason = getattr(choice, "finish_reason", None)
+            content = getattr(message, "content", None)
+
+            # Некоторые модели (Kimi K2 thinking, DeepSeek-R1 и т.п.) кладут текст
+            # в reasoning/reasoning_content, а content оставляют пустым. Берём оттуда
+            # как запасной вариант, чтобы протокол всё-таки сгенерировался.
+            if not (content and content.strip()):
+                fallback = (
+                    getattr(message, "reasoning_content", None)
+                    or getattr(message, "reasoning", None)
+                )
+                # OpenAI SDK иногда хранит дополнительные поля в model_extra
+                if not fallback:
+                    extra = getattr(message, "model_extra", None) or {}
+                    fallback = extra.get("reasoning_content") or extra.get("reasoning")
+
+                refusal = getattr(message, "refusal", None)
+                usage = getattr(response, "usage", None)
+                logger.warning(
+                    "⚠️ Пустой content от OpenRouter: model=%s finish_reason=%s "
+                    "refusal=%s usage=%s fallback_found=%s",
+                    self.model, finish_reason, refusal, usage, bool(fallback),
+                )
+
+                if fallback and fallback.strip():
+                    logger.info(
+                        "ℹ️ Использую reasoning_content в качестве ответа (%d симв.)",
+                        len(fallback),
+                    )
+                    return fallback
+
+                if finish_reason == "length":
+                    logger.error(
+                        "❌ Ответ обрезан по лимиту токенов (max_tokens=%s). "
+                        "Увеличьте template_settings.max_tokens в templates_config.json.",
+                        max_tokens,
+                    )
+                return None
+
+            if finish_reason == "length":
+                logger.warning(
+                    "⚠️ Ответ модели %s обрезан по лимиту токенов (max_tokens=%s)",
+                    self.model, max_tokens,
+                )
+
+            return content
+
         except Exception as e:
+            logger.exception("❌ Ошибка при обращении к OpenRouter API: %s", e)
             print(f"❌ Ошибка при обращении к OpenRouter API: {e}")
             return None
     

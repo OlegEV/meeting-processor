@@ -78,7 +78,7 @@ Uses `python-telegram-bot` v20 (async). Accepts file uploads and HTTP URLs (hand
 
 ### Configuration files
 
-- `config.json` — main config (paths, auth, database, openrouter, settings, deepgram_options, supported_formats, claude_models, available_models, confluence). Loaded by `ConfigLoader.load_config`.
+- `config.json` — main config (paths, auth, database, openrouter, settings, deepgram_options, supported_formats, available_models, confluence). Loaded by `ConfigLoader.load_config`.
 - `team_config.json` — known team members for speaker identification.
 - `templates_config.json` — single source of truth for the template list: `template_descriptions` (id → human label, used by web UI / CLI / `template_manager.py`), `meeting_type_keywords` and `auto_detection_settings` (consumed by `MeetingTemplates._detect_meeting_type`), plus `custom_templates`.
 - `bot_config.json` — Telegram bot allow-list, admin IDs, file size limits.
