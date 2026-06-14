@@ -1,0 +1,8 @@
+issue_prefix: mp
+issue-prefix: mp
+dolt.auto-start: false
+export.auto: false
+gc.endpoint_origin: inherited_city
+gc.endpoint_status: verified
+
+sync.remote: "git+https://github.com/OlegEV/meeting-processor.git"
