@@ -772,7 +772,7 @@ class WebTemplates:
     <div class="container mt-4">
         <div class="card shadow">
             <div class="card-header bg-primary text-white">
-                <h4><i class="fas fa-list me-2"></i>История обработки файлов</h4>
+                <h4><i class="fas fa-list me-2"></i>{% if is_admin %}Все задачи (администратор){% else %}История обработки файлов{% endif %}</h4>
             </div>
             <div class="card-body">
                 {% if jobs %}
@@ -781,6 +781,7 @@ class WebTemplates:
                             <thead class="table-light">
                                 <tr>
                                     <th>Файл</th>
+                                    {% if is_admin %}<th>Пользователь</th>{% endif %}
                                     <th>Шаблон</th>
                                     <th>Статус</th>
                                     <th>Прогресс</th>
@@ -792,6 +793,7 @@ class WebTemplates:
                                 {% for job in jobs %}
                                     <tr>
                                         <td><i class="fas fa-file me-1"></i>{{ job.filename }}</td>
+                                        {% if is_admin %}<td><small class="text-muted">{{ job.user_display }}</small></td>{% endif %}
                                         <td><span class="badge bg-secondary">{{ job.template }}</span></td>
                                         <td>
                                             {% if job.status == 'completed' %}

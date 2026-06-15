@@ -38,7 +38,8 @@ try:
     from config_loader import ConfigLoader
     from file_utils import FileUtils
     from web_templates import WebTemplates
-    from auth import create_auth_system, require_auth, get_current_user_id, get_current_user, is_authenticated
+    from auth import create_auth_system, require_auth, get_current_user_id, \
+        get_current_user, is_authenticated, is_current_user_admin
     from database import create_database_manager
     # Confluence модули (опциональные)
     confluence_available = True
@@ -414,16 +415,18 @@ class WorkingMeetingWebApp:
     def get_job_status(self, job_id: str) -> Optional[Dict]:
         """Безопасно получает статус задачи из базы данных"""
         try:
-            # Получаем текущего пользователя
             user_id = get_current_user_id()
             if not user_id:
                 logger.warning("Попытка получить статус задачи без аутентификации")
                 return None
-            
-            # Получаем задачу из базы данных с проверкой доступа
-            job_data = self.db_manager.get_job_by_id(job_id, user_id)
+
+            if is_current_user_admin():
+                logger.info(f"[ADMIN ACCESS] user_id={user_id} accessing job={job_id}")
+                job_data = self.db_manager.get_job_by_id(job_id)
+            else:
+                job_data = self.db_manager.get_job_by_id(job_id, user_id)
             return job_data
-            
+
         except Exception as e:
             logger.error(f"Ошибка получения статуса задачи {job_id}: {e}")
             return None
@@ -1171,12 +1174,16 @@ class WorkingMeetingWebApp:
                 if not user_id:
                     flash('Ошибка аутентификации', 'error')
                     return redirect(url_for('index'))
-                
-                # Получаем задачи пользователя из базы данных
-                user_jobs = self.db_manager.get_user_jobs(user_id, limit=50)
-                
+
+                admin = is_current_user_admin()
+
+                if admin:
+                    raw_jobs = self.db_manager.get_all_jobs(limit=100)
+                else:
+                    raw_jobs = self.db_manager.get_user_jobs(user_id, limit=50)
+
                 jobs = []
-                for job_data in user_jobs:
+                for job_data in raw_jobs:
                     created_at = job_data.get('created_at')
                     if isinstance(created_at, str):
                         try:
@@ -1185,18 +1192,25 @@ class WorkingMeetingWebApp:
                             created_at = datetime.utcnow()
                     elif not isinstance(created_at, datetime):
                         created_at = datetime.utcnow()
-                    
-                    jobs.append({
+
+                    entry = {
                         'id': job_data['job_id'],
                         'filename': job_data['filename'],
                         'status': job_data['status'],
                         'template': job_data['template'],
                         'created_at': created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                        'progress': job_data.get('progress', 0)
-                    })
-                
-                return render_template_string(self.templates.get_jobs_template(), jobs=jobs)
-                
+                        'progress': job_data.get('progress', 0),
+                    }
+                    if admin:
+                        entry['user_display'] = job_data.get('user_display', job_data['user_id'])
+                    jobs.append(entry)
+
+                return render_template_string(
+                    self.templates.get_jobs_template(),
+                    jobs=jobs,
+                    is_admin=admin,
+                )
+
             except Exception as e:
                 logger.error(f"Ошибка получения списка задач: {e}")
                 flash('Ошибка получения списка задач', 'error')

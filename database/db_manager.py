@@ -907,11 +907,18 @@ class DatabaseManager:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     
-    def get_all_jobs(self) -> List[Dict[str, Any]]:
+    def get_all_jobs(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Получает все задачи"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM jobs ORDER BY created_at DESC")
+            query = (
+                "SELECT j.*, COALESCE(u.name, u.preferred_username, u.email, j.user_id) AS user_display "
+                "FROM jobs j LEFT JOIN users u ON j.user_id = u.user_id "
+                "ORDER BY j.created_at DESC"
+            )
+            if limit is not None:
+                query += f" LIMIT {int(limit)}"
+            cursor.execute(query)
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     

@@ -255,17 +255,37 @@ def require_user_context(redirect_on_failure: bool = True):
 def optional_auth():
     """
     Глобальный декоратор для опциональной аутентификации
-    
+
     Returns:
         Декоратор функции
-        
+
     Raises:
         RuntimeError: Если декораторы не инициализированы
     """
     if _auth_decorators is None:
         raise RuntimeError("Декораторы аутентификации не инициализированы. Вызовите init_auth_decorators()")
-    
+
     return _auth_decorators.optional_auth()
+
+def is_current_user_admin() -> bool:
+    """
+    Проверяет, является ли текущий пользователь администратором.
+
+    Читает admin_user_ids из конфигурации auth-системы и сравнивает
+    с идентификатором текущего пользователя из UserContext.
+
+    Returns:
+        True если текущий пользователь есть в списке admin_user_ids, иначе False.
+        Возвращает False если декораторы не инициализированы или пользователь
+        не аутентифицирован.
+    """
+    if _auth_decorators is None:
+        return False
+    admin_ids = _auth_decorators.config.get('auth', {}).get('admin_user_ids', [])
+    current_user_id = UserContext.get_current_user_id()
+    if not current_user_id:
+        return False
+    return current_user_id in admin_ids
 
 # Middleware функция для Flask
 def create_auth_middleware(token_validator: TokenValidator, config: Optional[Dict[str, Any]] = None):
