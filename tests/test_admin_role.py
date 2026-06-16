@@ -33,19 +33,19 @@ class TestIsCurrentUserAdmin(unittest.TestCase):
     def test_returns_false_when_not_initialized(self):
         self.assertFalse(is_current_user_admin())
 
-    def test_returns_false_when_admin_user_ids_empty(self):
-        init_auth_decorators(None, {'auth': {'admin_user_ids': []}})
-        UserContext.set_current_user({'user_id': 'user1'})
+    def test_returns_false_when_admin_emails_empty(self):
+        init_auth_decorators(None, {'auth': {'admin_emails': []}})
+        UserContext.set_current_user({'user_id': 'user1', 'email': 'user@example.com'})
         self.assertFalse(is_current_user_admin())
 
-    def test_returns_true_when_user_in_admin_ids(self):
-        init_auth_decorators(None, {'auth': {'admin_user_ids': ['admin1', 'admin2']}})
-        UserContext.set_current_user({'user_id': 'admin1'})
+    def test_returns_true_when_email_in_admin_emails(self):
+        init_auth_decorators(None, {'auth': {'admin_emails': ['admin@example.com', 'admin2@example.com']}})
+        UserContext.set_current_user({'user_id': 'admin1', 'email': 'admin@example.com'})
         self.assertTrue(is_current_user_admin())
 
-    def test_returns_false_when_user_not_in_admin_ids(self):
-        init_auth_decorators(None, {'auth': {'admin_user_ids': ['admin1']}})
-        UserContext.set_current_user({'user_id': 'regular_user'})
+    def test_returns_false_when_email_not_in_admin_emails(self):
+        init_auth_decorators(None, {'auth': {'admin_emails': ['admin@example.com']}})
+        UserContext.set_current_user({'user_id': 'user1', 'email': 'user@example.com'})
         self.assertFalse(is_current_user_admin())
 
 
