@@ -107,7 +107,7 @@
     "anthropic/claude-sonnet-5": "Claude Sonnet 5",
     "anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
     "moonshotai/kimi-k2.6": "Kimi K2.6",
-    "qwen/qwen3.7-plus": "Qwen 3.6 Plus",
+    "qwen/qwen3.7-plus": "Qwen 3.7 Plus",
     "qwen/qwen3.7-max": "Qwen 3.7 Max",
     "z-ai/glm-5.2": "GLM 5.2",
     "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro"
