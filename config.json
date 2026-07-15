@@ -12,6 +12,7 @@
     "token_header": "X-Identity-Token",
     "jwt_algorithm": "RS256",
     "debug_mode": false,
+    "admin_emails": [],
     "debug_user": {
       "user_id": "debug_user",
       "email": "debug@localhost",

@@ -20,6 +20,7 @@ from .decorators import (
     require_auth,
     require_user_context,
     optional_auth,
+    is_current_user_admin,
     create_auth_middleware,
     create_auth_teardown
 )
@@ -50,6 +51,7 @@ __all__ = [
     'require_auth',
     'require_user_context',
     'optional_auth',
+    'is_current_user_admin',
     'create_auth_middleware',
     'create_auth_teardown',
     
