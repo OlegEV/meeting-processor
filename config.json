@@ -104,7 +104,7 @@
   },
 
   "available_models": {
-    "openrouter/anthropic/claude-sonnet-5": "Claude Sonnet 5",
+    "anthropic/claude-sonnet-5": "Claude Sonnet 5",
     "openrouter/anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
     "openrouter/moonshotai/kimi-k2.6": "Kimi K2.6",
     "openrouter/qwen/qwen3.7-plus": "Qwen 3.7 Plus",
