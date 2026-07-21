@@ -50,6 +50,15 @@
     "max_retries": 3
   },
 
+  "chat": {
+    "max_tokens": 1500,
+    "temperature": 0.3,
+    "max_transcript_chars": 200000,
+    "max_history_messages": 20,
+    "response_cache_ttl": 600,
+    "response_cache_size": 128
+  },
+
   "settings": {
     "keep_audio_file": false,
     "language": "multi",

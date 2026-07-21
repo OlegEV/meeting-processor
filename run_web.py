@@ -8,7 +8,10 @@ import os
 import sys
 import json
 import uuid
+import time
+import hashlib
 import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, Optional, Any
 import logging
@@ -196,7 +199,11 @@ class WorkingMeetingWebApp:
         
         # Инициализируем шаблоны
         self.templates = WebTemplates()
-        
+
+        # Кеш ответов чата по транскрипту (in-process, best-effort, отдельный на каждый worker)
+        self._chat_cache = OrderedDict()
+        self._chat_cache_lock = threading.Lock()
+
         # Настраиваем middleware
         self.setup_middleware()
         
@@ -411,6 +418,127 @@ class WorkingMeetingWebApp:
             if model:
                 return self.resolve_model(model)
         return self.get_default_model()
+
+    # ---- Чат с LLM по транскрипту -------------------------------------------------
+
+    # Системная инструкция для чата: отвечать строго по транскрипту, не выдумывать.
+    CHAT_SYSTEM_INSTRUCTION = (
+        "Ты — ассистент, который отвечает на вопросы пользователя по транскрипту встречи. "
+        "Отвечай только на основе приведённого ниже транскрипта. Если в транскрипте нет "
+        "нужной информации — прямо скажи об этом и ничего не выдумывай. Отвечай на русском "
+        "языке, кратко и по делу. Оформляй ответ в Markdown, когда это уместно."
+    )
+
+    def get_chat_config(self) -> Dict[str, Any]:
+        """Возвращает настройки чата из config.chat с безопасными значениями по умолчанию."""
+        cfg = self.config.get('chat', {})
+        if not isinstance(cfg, dict):
+            cfg = {}
+        return {
+            'max_tokens': int(cfg.get('max_tokens', 1500)),
+            'temperature': float(cfg.get('temperature', 0.3)),
+            'max_transcript_chars': int(cfg.get('max_transcript_chars', 200000)),
+            'max_history_messages': int(cfg.get('max_history_messages', 20)),
+            'response_cache_ttl': int(cfg.get('response_cache_ttl', 600)),
+            'response_cache_size': int(cfg.get('response_cache_size', 128)),
+        }
+
+    def validate_chat_history(self, raw, cfg: Dict[str, Any]):
+        """Проверяет и нормализует историю сообщений, пришедшую с клиента.
+
+        Возвращает (cleaned_history, None) при успехе или (None, error_message) при ошибке.
+        """
+        if not isinstance(raw, list) or not raw:
+            return None, "Пустой список сообщений"
+
+        # Ограничиваем длину истории последними N сообщениями
+        max_history = cfg['max_history_messages']
+        if max_history and len(raw) > max_history:
+            raw = raw[-max_history:]
+
+        cleaned = []
+        total_chars = 0
+        for message in raw:
+            if not isinstance(message, dict):
+                return None, "Некорректный формат сообщения"
+            role = message.get('role')
+            content = message.get('content')
+            if role not in ('user', 'assistant'):
+                return None, "Недопустимая роль сообщения"
+            if not isinstance(content, str) or not content.strip():
+                return None, "Пустое сообщение"
+            content = content[:20000]  # ограничение на длину одного сообщения
+            total_chars += len(content)
+            cleaned.append({'role': role, 'content': content})
+
+        if total_chars > 200000:
+            return None, "Слишком большой объём переписки"
+        if cleaned[-1]['role'] != 'user':
+            return None, "Последнее сообщение должно быть от пользователя"
+        return cleaned, None
+
+    def build_chat_messages(self, transcript: str, history, cfg: Dict[str, Any]):
+        """Собирает список сообщений для LLM с prompt caching транскрипта.
+
+        Транскрипт кладётся в system-сообщение отдельным блоком с cache_control:
+        LiteLLM/Anthropic кешируют этот префикс между всеми вопросами сессии (для
+        не-Anthropic моделей поле cache_control просто игнорируется).
+        """
+        max_chars = cfg['max_transcript_chars']
+        if max_chars and len(transcript) > max_chars:
+            transcript = transcript[:max_chars] + "\n\n[...транскрипт обрезан по лимиту...]"
+
+        system_message = {
+            'role': 'system',
+            'content': [
+                {'type': 'text', 'text': self.CHAT_SYSTEM_INSTRUCTION},
+                {
+                    'type': 'text',
+                    'text': f"Транскрипт встречи:\n\n{transcript}",
+                    'cache_control': {'type': 'ephemeral'},
+                },
+            ],
+        }
+
+        messages = [system_message]
+        messages.extend({'role': m['role'], 'content': m['content']} for m in history)
+
+        # Помечаем последний вопрос пользователя cache_control — чекпоинт для followup-запросов
+        last = messages[-1]
+        if last['role'] == 'user' and isinstance(last['content'], str):
+            messages[-1] = {
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': last['content'], 'cache_control': {'type': 'ephemeral'}}
+                ],
+            }
+        return messages
+
+    def _chat_cache_key(self, model: str, transcript_fingerprint: str, history) -> str:
+        payload = json.dumps(
+            {'m': model, 't': transcript_fingerprint, 'h': history},
+            ensure_ascii=False, sort_keys=True,
+        )
+        return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+    def chat_cache_get(self, key: str, ttl: int):
+        with self._chat_cache_lock:
+            item = self._chat_cache.get(key)
+            if not item:
+                return None
+            timestamp, value = item
+            if ttl and (time.time() - timestamp) > ttl:
+                self._chat_cache.pop(key, None)
+                return None
+            self._chat_cache.move_to_end(key)
+            return value
+
+    def chat_cache_put(self, key: str, value: str, max_size: int):
+        with self._chat_cache_lock:
+            self._chat_cache[key] = (time.time(), value)
+            self._chat_cache.move_to_end(key)
+            while len(self._chat_cache) > max_size:
+                self._chat_cache.popitem(last=False)
 
     def compute_job_stage(self, job: Dict[str, Any]) -> str:
         """Определяет отображаемый этап задачи по status + наличию transcript_file.
@@ -1124,6 +1252,98 @@ class WorkingMeetingWebApp:
                 flash(f'Ошибка просмотра файла: {str(e)}', 'error')
                 return redirect(url_for('status', job_id=job_id))
         
+        @self.app.route('/chat/<job_id>')
+        @require_auth()
+        def chat_page(job_id: str):
+            """Страница чата с ИИ по транскрипту встречи"""
+            job = self.get_job_status(job_id)
+            if not job:
+                flash('Задача не найдена или у вас нет доступа к ней', 'error')
+                return redirect(url_for('index'))
+
+            transcript_file = job.get('transcript_file')
+            if not transcript_file or not os.path.exists(transcript_file):
+                flash('Транскрипт недоступен — чат по этой задаче невозможен', 'error')
+                return redirect(url_for('status', job_id=job_id))
+
+            return render_template_string(
+                self.templates.get_chat_template(),
+                job_id=job_id,
+                filename=job.get('filename', ''),
+                available_models=self.get_available_models(),
+                current_model=self.get_job_model(job),
+            )
+
+        @self.app.route('/api/chat/<job_id>', methods=['POST'])
+        @require_auth(redirect_on_failure=False)
+        def chat_api(job_id: str):
+            """Ответ ИИ на вопрос по транскрипту.
+
+            Сервер stateless: история диалога приходит с клиента, транскрипт
+            подгружается по job_id. Ничего не сохраняется в БД.
+            """
+            job = self.get_job_status(job_id)
+            if not job:
+                return jsonify({'error': 'Задача не найдена'}), 404
+
+            transcript_file = job.get('transcript_file')
+            if not transcript_file or not os.path.exists(transcript_file):
+                return jsonify({'error': 'Транскрипт недоступен'}), 400
+
+            cfg = self.get_chat_config()
+            data = request.get_json(silent=True) or {}
+            history, error = self.validate_chat_history(data.get('messages'), cfg)
+            if error:
+                return jsonify({'error': error}), 400
+
+            selected_model = self.resolve_model(data.get('model') or self.get_job_model(job))
+
+            try:
+                with open(transcript_file, 'r', encoding='utf-8') as f:
+                    transcript = f.read()
+            except OSError as e:
+                logger.error(f"❌ Не удалось прочитать транскрипт для чата: {e}")
+                return jsonify({'error': 'Не удалось прочитать транскрипт'}), 500
+
+            # Отпечаток транскрипта для ключа кеша ответов
+            try:
+                stat = os.stat(transcript_file)
+                transcript_fp = f"{transcript_file}:{int(stat.st_mtime)}:{stat.st_size}"
+            except OSError:
+                transcript_fp = transcript_file
+
+            cache_key = self._chat_cache_key(selected_model, transcript_fp, history)
+            cached = self.chat_cache_get(cache_key, cfg['response_cache_ttl'])
+            if cached is not None:
+                return jsonify({'reply': cached, 'model': selected_model, 'cached': True})
+
+            try:
+                from openrouter_client import OpenRouterClient
+            except ImportError:
+                logger.error("❌ openrouter_client недоступен для чата")
+                return jsonify({'error': 'LLM-клиент недоступен'}), 500
+
+            messages = self.build_chat_messages(transcript, history, cfg)
+
+            try:
+                client = OpenRouterClient(
+                    api_key=self.claude_key, model=selected_model, config=self.config
+                )
+                reply = client.create_message(
+                    messages,
+                    max_tokens=cfg['max_tokens'],
+                    temperature=cfg['temperature'],
+                )
+            except Exception as e:
+                logger.exception(f"❌ Ошибка чата с LLM: {e}")
+                return jsonify({'error': 'Ошибка обращения к модели'}), 502
+
+            if not reply:
+                return jsonify({'error': 'Модель вернула пустой ответ'}), 502
+
+            self.chat_cache_put(cache_key, reply, cfg['response_cache_size'])
+            return jsonify({'reply': reply, 'model': selected_model, 'cached': False})
+
         @self.app.route('/generate_protocol/<job_id>', methods=['POST'])
         @require_auth()
         def generate_protocol(job_id: str):

@@ -285,6 +285,13 @@ class WebTemplates:
                                     </a>
                                 </div>
                             </div>
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <a href="/chat/{{ job_id }}" class="btn btn-success w-100 mb-2">
+                                        <i class="fas fa-robot me-2"></i>Спросить у ИИ по транскрипту
+                                    </a>
+                                </div>
+                            </div>
                         {% endif %}
 
                         {% if stage in ['completed', 'transcribed_only'] %}
@@ -767,6 +774,11 @@ class WebTemplates:
             <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                 <h4><i class="fas fa-file-alt me-2"></i>{{ file_title }}</h4>
                 <div>
+                    {% if file_type == 'transcript' %}
+                    <a href="/chat/{{ job_id }}" class="btn btn-success btn-sm me-2">
+                        <i class="fas fa-robot me-1"></i>Спросить у ИИ
+                    </a>
+                    {% endif %}
                     <a href="/download/{{ job_id }}/{{ file_type }}" class="btn btn-light btn-sm me-2">
                         <i class="fas fa-download me-1"></i>Скачать
                     </a>
@@ -799,7 +811,275 @@ class WebTemplates:
 </body>
 </html>
         '''
-    
+
+    def get_chat_template(self):
+        """Возвращает HTML шаблон страницы чата с ИИ по транскрипту"""
+        return '''
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Чат с ИИ — {{ filename }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        html, body { height: 100%; }
+        body { background-color: #f8f9fa; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .chat-shell { flex: 1 1 auto; min-height: 0; width: 100%; max-width: 900px; margin: 0 auto; padding: 1rem; display: flex; flex-direction: column; }
+        .chat-card { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        .chat-log { flex: 1; overflow-y: auto; padding: 1rem; background: #fff; }
+        .chat-msg { display: flex; margin-bottom: 0.75rem; }
+        .chat-msg-user { justify-content: flex-end; }
+        .chat-msg-assistant { justify-content: flex-start; }
+        .msg-col { display: flex; flex-direction: column; max-width: 80%; }
+        .chat-msg-user .msg-col { align-items: flex-end; }
+        .chat-msg > .chat-bubble { max-width: 80%; }
+        .chat-bubble {
+            max-width: 100%; padding: 0.6rem 0.9rem; border-radius: 1rem;
+            line-height: 1.5; word-wrap: break-word; overflow-wrap: anywhere;
+        }
+        .chat-msg-user .chat-bubble { background: #0d6efd; color: #fff; border-bottom-right-radius: 0.25rem; }
+        .chat-msg-assistant .chat-bubble { background: #f1f3f5; color: #212529; border-bottom-left-radius: 0.25rem; }
+        .chat-bubble p:last-child { margin-bottom: 0; }
+        .chat-bubble pre { background: #e9ecef; padding: 0.5rem; border-radius: 0.35rem; overflow-x: auto; }
+        .chat-bubble code { background: #e9ecef; padding: 0.1rem 0.3rem; border-radius: 0.25rem; }
+        .chat-bubble table { border-collapse: collapse; }
+        .chat-bubble th, .chat-bubble td { border: 1px solid #ced4da; padding: 0.25rem 0.5rem; }
+        .chat-error { color: #842029; background: #f8d7da; border: 1px solid #f5c2c7; }
+        .chat-empty { color: #6c757d; text-align: center; padding: 2rem 1rem; }
+        .cached-badge { font-size: 0.7rem; color: #6c757d; }
+        .msg-actions { margin-top: 0.25rem; }
+        .copy-btn { font-size: 0.72rem; padding: 0.1rem 0.45rem; line-height: 1.3; }
+        .typing span { display: inline-block; width: 6px; height: 6px; margin: 0 1px; background: #adb5bd; border-radius: 50%; animation: blink 1.2s infinite both; }
+        .typing span:nth-child(2) { animation-delay: 0.2s; }
+        .typing span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+        #chat-input { resize: none; min-height: 84px; max-height: 200px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
+            <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
+                <a class="nav-link" href="/status/{{ job_id }}"><i class="fas fa-arrow-left me-1"></i>К задаче</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="chat-shell">
+        <div class="card shadow chat-card">
+            <div class="card-header bg-primary text-white">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <h5 class="mb-0"><i class="fas fa-robot me-2"></i>Чат с ИИ по транскрипту</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <label for="model-select" class="text-white-50 small mb-0">Модель:</label>
+                        <select id="model-select" class="form-select form-select-sm" style="width: auto;">
+                            {% for model_id, label in available_models.items() %}
+                            <option value="{{ model_id }}" {% if model_id == current_model %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <button id="clear-btn" class="btn btn-outline-light btn-sm" type="button">
+                            <i class="fas fa-eraser me-1"></i>Очистить
+                        </button>
+                    </div>
+                </div>
+                <small class="text-white-50"><i class="fas fa-file me-1"></i>{{ filename }}</small>
+            </div>
+
+            <div id="chat-log" class="chat-log">
+                <div id="empty-state" class="chat-empty">
+                    <i class="fas fa-comments fa-2x mb-2"></i>
+                    <p class="mb-1">Задайте вопрос по транскрипту встречи или попросите составить нужный текст.</p>
+                    <p class="small mb-0"><i class="fas fa-info-circle me-1"></i>История хранится только на этой странице и нигде не сохраняется.</p>
+                </div>
+            </div>
+
+            <div class="card-footer bg-white">
+                <div class="input-group">
+                    <textarea id="chat-input" class="form-control" rows="3"
+                              placeholder="Ваш вопрос... (Enter — отправить, Shift+Enter — новая строка)"></textarea>
+                    <button id="send-btn" class="btn btn-primary" type="button">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var jobId = "{{ job_id }}";
+        var messages = [];
+        var chatLog = document.getElementById('chat-log');
+        var input = document.getElementById('chat-input');
+        var sendBtn = document.getElementById('send-btn');
+        var clearBtn = document.getElementById('clear-btn');
+        var modelSelect = document.getElementById('model-select');
+        var emptyState = document.getElementById('empty-state');
+
+        function autoGrow() {
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+        }
+
+        function scrollToBottom() { chatLog.scrollTop = chatLog.scrollHeight; }
+
+        function addBubble(role, content, isMarkdown) {
+            if (emptyState && emptyState.parentNode) emptyState.style.display = 'none';
+            var wrap = document.createElement('div');
+            wrap.className = 'chat-msg ' + (role === 'user' ? 'chat-msg-user' : 'chat-msg-assistant');
+            var col = document.createElement('div');
+            col.className = 'msg-col';
+            var bubble = document.createElement('div');
+            bubble.className = 'chat-bubble';
+            if (isMarkdown) { bubble.innerHTML = marked.parse(content || ''); }
+            else { bubble.textContent = content; }
+            col.appendChild(bubble);
+            wrap.appendChild(col);
+            chatLog.appendChild(wrap);
+            scrollToBottom();
+            return wrap;
+        }
+
+        function addTyping() {
+            var wrap = document.createElement('div');
+            wrap.className = 'chat-msg chat-msg-assistant';
+            wrap.innerHTML = '<div class="chat-bubble typing"><span></span><span></span><span></span></div>';
+            chatLog.appendChild(wrap);
+            scrollToBottom();
+            return wrap;
+        }
+
+        function addError(text) {
+            var wrap = document.createElement('div');
+            wrap.className = 'chat-msg chat-msg-assistant';
+            var bubble = document.createElement('div');
+            bubble.className = 'chat-bubble chat-error';
+            bubble.textContent = text;
+            wrap.appendChild(bubble);
+            chatLog.appendChild(wrap);
+            scrollToBottom();
+        }
+
+        function attachAssistantActions(wrap, rawMarkdown, cached) {
+            var col = wrap.querySelector('.msg-col');
+            var actions = document.createElement('div');
+            actions.className = 'msg-actions d-flex align-items-center gap-2';
+
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-outline-secondary copy-btn';
+            btn.innerHTML = '<i class="fas fa-copy me-1"></i>Копировать Markdown';
+            btn.addEventListener('click', function () { copyText(rawMarkdown, btn); });
+            actions.appendChild(btn);
+
+            if (cached) {
+                var badge = document.createElement('span');
+                badge.className = 'cached-badge';
+                badge.innerHTML = '<i class="fas fa-bolt me-1"></i>из кеша';
+                actions.appendChild(badge);
+            }
+            col.appendChild(actions);
+            scrollToBottom();
+        }
+
+        function copyText(text, btn) {
+            function done() {
+                var original = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check me-1"></i>Скопировано';
+                btn.disabled = true;
+                setTimeout(function () { btn.innerHTML = original; btn.disabled = false; }, 1500);
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+            } else {
+                fallbackCopy(text, done);
+            }
+        }
+
+        function fallbackCopy(text, done) {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            try { document.execCommand('copy'); done(); }
+            catch (e) { window.alert('Не удалось скопировать'); }
+            document.body.removeChild(ta);
+        }
+
+        async function sendMessage() {
+            var text = input.value.trim();
+            if (!text || sendBtn.disabled) return;
+
+            input.value = '';
+            autoGrow();
+            messages.push({ role: 'user', content: text });
+            var userWrap = addBubble('user', text, false);
+
+            sendBtn.disabled = true;
+            var typing = addTyping();
+
+            try {
+                var resp = await fetch('/api/chat/' + jobId, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: messages, model: modelSelect.value })
+                });
+                typing.remove();
+                var data = {};
+                try { data = await resp.json(); } catch (e) { data = {}; }
+
+                if (!resp.ok) {
+                    userWrap.remove();
+                    messages.pop();
+                    input.value = text;
+                    autoGrow();
+                    addError(data.error || ('Ошибка сервера (' + resp.status + ')'));
+                } else {
+                    messages.push({ role: 'assistant', content: data.reply });
+                    var wrap = addBubble('assistant', data.reply, true);
+                    attachAssistantActions(wrap, data.reply, data.cached);
+                }
+            } catch (e) {
+                typing.remove();
+                userWrap.remove();
+                messages.pop();
+                input.value = text;
+                autoGrow();
+                addError('Не удалось связаться с сервером');
+            } finally {
+                sendBtn.disabled = false;
+                input.focus();
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        input.addEventListener('input', autoGrow);
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+        });
+
+        clearBtn.addEventListener('click', function () {
+            if (!messages.length) return;
+            if (!confirm('Очистить историю диалога?')) return;
+            messages = [];
+            chatLog.innerHTML = '';
+            chatLog.appendChild(emptyState);
+            emptyState.style.display = '';
+        });
+
+        input.focus();
+    </script>
+</body>
+</html>
+        '''
+
     def get_jobs_template(self):
         """Возвращает HTML шаблон списка задач"""
         return '''
