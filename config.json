@@ -45,8 +45,8 @@
 
   "openrouter": {
     "base_url": "http://10.1.23.12:4000",
-    "timeout": 60.0,
-    "connect_timeout": 30.0,
+    "timeout": 120.0,
+    "connect_timeout": 40.0,
     "max_retries": 3
   },
 

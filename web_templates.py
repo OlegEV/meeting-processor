@@ -20,10 +20,11 @@ class WebTemplates:
 <body class="bg-light">
     <nav class="navbar navbar-dark bg-primary">
         <div class="container">
-            <span class="navbar-brand"><i class="fas fa-microphone me-2"></i>Meeting Processor</span>
+            <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
             <div class="navbar-nav d-flex flex-row">
-                <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
+                <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
                 <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
                 <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
@@ -41,14 +42,12 @@ class WebTemplates:
             {% endif %}
         {% endwith %}
 
-        <div class="row justify-content-center">
-            <div class="col-md-8">
-                <div class="card shadow">
-                    <div class="card-header bg-primary text-white">
-                        <h4><i class="fas fa-upload me-2"></i>Загрузка файла для обработки</h4>
-                    </div>
-                    <div class="card-body">
-                        <form id="uploadForm" method="POST" action="/upload" enctype="multipart/form-data">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h4><i class="fas fa-upload me-2"></i>Загрузка файла для обработки</h4>
+            </div>
+            <div class="card-body">
+                <form id="uploadForm" method="POST" action="/upload" enctype="multipart/form-data">
                             <div class="mb-3">
                                 <label for="template" class="form-label">Шаблон протокола:</label>
                                 <select class="form-select" name="template" required>
@@ -57,7 +56,11 @@ class WebTemplates:
                                             {{ template_id.title() }} - {{ description }}
                                         </option>
                                     {% endfor %}
+                                    <option value="none">Без протокола — только транскрибация</option>
                                 </select>
+                                <div class="form-text">
+                                    Если выбрать «Без протокола», будет выполнена только транскрибация — генерация протокола пропускается.
+                                </div>
                             </div>
 
                             <div class="mb-3">
@@ -100,8 +103,6 @@ class WebTemplates:
                         </form>
                     </div>
                 </div>
-            </div>
-        </div>
 
         <div class="row mt-5">
             <div class="col-md-4">
@@ -218,7 +219,9 @@ class WebTemplates:
         <div class="container">
             <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
             <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
                 <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
                 <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
@@ -236,17 +239,17 @@ class WebTemplates:
             {% endif %}
         {% endwith %}
 
-        <div class="row justify-content-center">
-            <div class="col-md-8">
-                <div class="card shadow">
-                    <div class="card-header bg-primary text-white">
-                        <h4><i class="fas fa-tasks me-2"></i>Статус обработки</h4>
-                    </div>
-                    <div class="card-body text-center">
-                        <div class="mb-3">
-                            {% if job.status == 'completed' %}
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h4><i class="fas fa-tasks me-2"></i>Статус обработки</h4>
+            </div>
+            <div class="card-body text-center">
+                <div class="mb-3">
+                            {% if stage in ['completed', 'transcribed_only'] %}
                                 <i class="fas fa-check-circle fa-4x text-success"></i>
-                            {% elif job.status == 'error' %}
+                            {% elif stage == 'protocol_error' %}
+                                <i class="fas fa-exclamation-triangle fa-4x text-warning"></i>
+                            {% elif stage == 'transcription_error' %}
                                 <i class="fas fa-exclamation-circle fa-4x text-danger"></i>
                             {% else %}
                                 <i class="fas fa-cog fa-spin fa-4x text-primary"></i>
@@ -254,22 +257,22 @@ class WebTemplates:
                         </div>
 
                         <h5>{{ job.filename }}</h5>
-                        <p class="text-muted">Шаблон: {{ job.template }}</p>
+                        <p class="text-muted">Шаблон: {{ 'без протокола' if job.template == 'none' else job.template }}</p>
 
                         <div class="progress mb-3" style="height: 30px;">
-                            <div class="progress-bar 
-                                {% if job.status == 'completed' %}bg-success{% elif job.status == 'error' %}bg-danger{% else %}bg-primary progress-bar-animated{% endif %}" 
+                            <div class="progress-bar
+                                {% if stage in ['completed', 'transcribed_only'] %}bg-success{% elif stage == 'protocol_error' %}bg-warning{% elif stage == 'transcription_error' %}bg-danger{% else %}bg-primary progress-bar-animated{% endif %}"
                                 style="width: {{ job.progress }}%">
                                 {{ job.progress }}%
                             </div>
                         </div>
 
-                        <div class="alert 
-                            {% if job.status == 'completed' %}alert-success{% elif job.status == 'error' %}alert-danger{% else %}alert-info{% endif %}">
+                        <div class="alert
+                            {% if stage in ['completed', 'transcribed_only'] %}alert-success{% elif stage == 'protocol_error' %}alert-warning{% elif stage == 'transcription_error' %}alert-danger{% else %}alert-info{% endif %}">
                             {{ job.message }}
                         </div>
 
-                        {% if job.status == 'completed' %}
+                        {% if job.transcript_file %}
                             <div class="row mb-3">
                                 <div class="col-md-6">
                                     <a href="/view/{{ job_id }}/transcript" class="btn btn-outline-info w-100 mb-2">
@@ -277,34 +280,39 @@ class WebTemplates:
                                     </a>
                                 </div>
                                 <div class="col-md-6">
-                                    <a href="/view/{{ job_id }}/summary" class="btn btn-info w-100 mb-2">
-                                        <i class="fas fa-eye me-2"></i>Просмотреть протокол
-                                    </a>
-                                </div>
-                            </div>
-                            <div class="row mb-3">
-                                <div class="col-md-6">
                                     <a href="/download/{{ job_id }}/transcript" class="btn btn-outline-primary w-100 mb-2">
                                         <i class="fas fa-file-alt me-2"></i>Скачать транскрипт
                                     </a>
                                 </div>
-                                <div class="col-md-6">
-                                    <a href="/download/{{ job_id }}/summary" class="btn btn-primary w-100 mb-2">
-                                        <i class="fas fa-file-download me-2"></i>Скачать протокол
-                                    </a>
-                                </div>
                             </div>
-                            
-                            <!-- Форма для генерации протокола в новом шаблоне -->
+                        {% endif %}
+
+                        {% if stage in ['completed', 'transcribed_only'] %}
+                            {% if stage == 'completed' %}
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <a href="/view/{{ job_id }}/summary" class="btn btn-info w-100 mb-2">
+                                            <i class="fas fa-eye me-2"></i>Просмотреть протокол
+                                        </a>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <a href="/download/{{ job_id }}/summary" class="btn btn-primary w-100 mb-2">
+                                            <i class="fas fa-file-download me-2"></i>Скачать протокол
+                                        </a>
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            <!-- Форма для генерации протокола -->
                             <div class="card border-warning mb-3">
                                 <div class="card-header bg-warning text-dark">
-                                    <h6 class="mb-0"><i class="fas fa-magic me-2"></i>Сгенерировать протокол в другом шаблоне</h6>
+                                    <h6 class="mb-0"><i class="fas fa-magic me-2"></i>{% if stage == 'completed' %}Сгенерировать протокол в другом шаблоне{% else %}Сгенерировать протокол{% endif %}</h6>
                                 </div>
                                 <div class="card-body">
                                     <form method="POST" action="/generate_protocol/{{ job_id }}">
                                         <div class="row align-items-end">
-                                            <div class="col-md-6">
-                                                <label for="new_template" class="form-label">Выберите новый шаблон:</label>
+                                            <div class="col-md-5">
+                                                <label for="new_template" class="form-label">Выберите шаблон:</label>
                                                 <select class="form-select" name="new_template" required>
                                                     {% for template_id, description in templates.items() %}
                                                         {% if template_id != job.template %}
@@ -325,8 +333,8 @@ class WebTemplates:
                                                     {% endfor %}
                                                 </select>
                                             </div>
-                                            <div class="col-md-2">
-                                                <button type="submit" class="btn btn-warning w-100">
+                                            <div class="col-md-3">
+                                                <button type="submit" class="btn btn-warning w-100 text-nowrap">
                                                     <i class="fas fa-cogs me-2"></i>Сгенерировать
                                                 </button>
                                             </div>
@@ -338,89 +346,133 @@ class WebTemplates:
                                     </form>
                                 </div>
                             </div>
-                            
-                            <!-- Форма для публикации в Confluence -->
-                            <div class="card border-info mb-3">
-                                <div class="card-header bg-info text-white">
-                                    <h6 class="mb-0"><i class="fas fa-cloud-upload-alt me-2"></i>Публикация в Confluence</h6>
-                                </div>
-                                <div class="card-body">
-                                    <form id="confluenceForm" method="POST" action="/publish_confluence/{{ job_id }}">
-                                        <div class="row">
-                                            <div class="col-md-12 mb-3">
-                                                <label for="base_page_url" class="form-label">
-                                                    <i class="fas fa-link me-1"></i>URL базовой страницы Confluence <span class="text-danger">*</span>
-                                                </label>
-                                                <input type="url" class="form-control" id="base_page_url" name="base_page_url"
-                                                       placeholder="Server: https://wiki.domain.com/pages/viewpage.action?pageId=123456 или https://wiki.domain.com/display/SPACE/PAGE"
-                                                       required>
-                                                <div class="form-text">
-                                                    <i class="fas fa-info-circle me-1"></i>
-                                                    URL страницы, под которой будет создан протокол встречи
+
+                            {% if stage == 'completed' %}
+                                <!-- Форма для публикации в Confluence -->
+                                <div class="card border-info mb-3">
+                                    <div class="card-header bg-info text-white">
+                                        <h6 class="mb-0"><i class="fas fa-cloud-upload-alt me-2"></i>Публикация в Confluence</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <form id="confluenceForm" method="POST" action="/publish_confluence/{{ job_id }}">
+                                            <div class="row">
+                                                <div class="col-md-12 mb-3">
+                                                    <label for="base_page_url" class="form-label">
+                                                        <i class="fas fa-link me-1"></i>URL базовой страницы Confluence <span class="text-danger">*</span>
+                                                    </label>
+                                                    <input type="url" class="form-control" id="base_page_url" name="base_page_url"
+                                                           placeholder="Server: https://wiki.domain.com/pages/viewpage.action?pageId=123456 или https://wiki.domain.com/display/SPACE/PAGE"
+                                                           required>
+                                                    <div class="form-text">
+                                                        <i class="fas fa-info-circle me-1"></i>
+                                                        URL страницы, под которой будет создан протокол встречи
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                        <div class="row">
-                                            <div class="col-md-8 mb-3">
-                                                <label for="page_title" class="form-label">
-                                                    <i class="fas fa-heading me-1"></i>Заголовок страницы
-                                                </label>
-                                                <input type="text" class="form-control" id="page_title" name="page_title"
-                                                       placeholder="Автоматически сгенерируется из содержимого">
-                                                <div class="form-text">
-                                                    Оставьте пустым для автоматической генерации
+                                            <div class="row">
+                                                <div class="col-md-8 mb-3">
+                                                    <label for="page_title" class="form-label">
+                                                        <i class="fas fa-heading me-1"></i>Заголовок страницы
+                                                    </label>
+                                                    <input type="text" class="form-control" id="page_title" name="page_title"
+                                                           placeholder="Автоматически сгенерируется из содержимого">
+                                                    <div class="form-text">
+                                                        Оставьте пустым для автоматической генерации
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                        <div class="row">
-                                            <div class="col-md-12">
-                                                <button type="submit" class="btn btn-info w-100" id="publishBtn">
-                                                    <i class="fas fa-cloud-upload-alt me-2"></i>Опубликовать в Confluence
-                                                </button>
+                                            <div class="row">
+                                                <div class="col-md-12">
+                                                    <button type="submit" class="btn btn-info w-100" id="publishBtn">
+                                                        <i class="fas fa-cloud-upload-alt me-2"></i>Опубликовать в Confluence
+                                                    </button>
+                                                </div>
                                             </div>
+                                        </form>
+
+                                        <!-- Область для отображения результата публикации -->
+                                        <div id="publicationResult" class="mt-3" style="display: none;">
+                                            <div id="publicationAlert" class="alert" role="alert"></div>
                                         </div>
-                                    </form>
-                                    
-                                    <!-- Область для отображения результата публикации -->
-                                    <div id="publicationResult" class="mt-3" style="display: none;">
-                                        <div id="publicationAlert" class="alert" role="alert"></div>
-                                    </div>
-                                    
-                                    <!-- История публикаций -->
-                                    <div id="publicationHistory" class="mt-4" style="display: none;">
-                                        <h6><i class="fas fa-history me-2"></i>История публикаций</h6>
-                                        <div id="publicationHistoryContent"></div>
+
+                                        <!-- История публикаций -->
+                                        <div id="publicationHistory" class="mt-4" style="display: none;">
+                                            <h6><i class="fas fa-history me-2"></i>История публикаций</h6>
+                                            <div id="publicationHistoryContent"></div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            
+                            {% endif %}
+
                             <a href="/" class="btn btn-success">
                                 <i class="fas fa-plus me-2"></i>Обработать еще файл
                             </a>
-                        {% elif job.status == 'error' %}
+                        {% elif stage == 'protocol_error' %}
+                            <!-- Форма для повторной генерации протокола -->
+                            <div class="card border-warning mb-3">
+                                <div class="card-header bg-warning text-dark">
+                                    <h6 class="mb-0"><i class="fas fa-redo me-2"></i>Повторить генерацию протокола</h6>
+                                </div>
+                                <div class="card-body">
+                                    <form method="POST" action="/retry_protocol/{{ job_id }}">
+                                        <div class="row align-items-end">
+                                            <div class="col-md-5">
+                                                <label for="retry_template" class="form-label">Шаблон протокола:</label>
+                                                <select class="form-select" id="retry_template" name="template" required>
+                                                    {% for template_id, description in templates.items() %}
+                                                        <option value="{{ template_id }}" {% if template_id == job.template %}selected{% endif %}>
+                                                            {{ template_id.title() }} - {{ description }}
+                                                        </option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="retry_model" class="form-label">Модель:</label>
+                                                <select class="form-select" id="retry_model" name="model" required>
+                                                    {% for model_id, description in available_models.items() %}
+                                                        <option value="{{ model_id }}" {% if model_id == current_model %}selected{% endif %}>
+                                                            {{ description }}
+                                                        </option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <button type="submit" class="btn btn-warning w-100 text-nowrap">
+                                                    <i class="fas fa-redo me-2"></i>Повторить
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="form-text mt-2">
+                                            <i class="fas fa-info-circle me-1"></i>
+                                            Транскрипт уже готов — будет предпринята повторная попытка сгенерировать протокол
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        {% elif stage == 'transcription_error' %}
                             <a href="/" class="btn btn-primary">
                                 <i class="fas fa-upload me-2"></i>Попробовать снова
                             </a>
                         {% endif %}
                     </div>
                 </div>
-            </div>
-        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        {% if job.status not in ['completed', 'error'] %}
-            setInterval(function() {
+        {% if stage not in ['completed', 'transcribed_only', 'protocol_error', 'transcription_error'] %}
+            const initialTranscriptReady = {{ 'true' if job.transcript_file else 'false' }};
+            const statusPollId = setInterval(function() {
                 fetch('/api/status/{{ job_id }}')
                     .then(response => response.json())
                     .then(data => {
-                        if (data.status === 'completed' || data.status === 'error') {
+                        if (data.status === 'completed' || data.status === 'error' || (!initialTranscriptReady && data.transcript_ready)) {
+                            clearInterval(statusPollId);
                             location.reload();
                         } else {
                             const progressBar = document.querySelector('.progress-bar');
                             const alertDiv = document.querySelector('.alert');
-                            
+
                             progressBar.style.width = data.progress + '%';
                             progressBar.textContent = data.progress + '%';
                             alertDiv.textContent = data.message;
@@ -429,8 +481,8 @@ class WebTemplates:
                     .catch(error => console.error('Ошибка обновления статуса:', error));
             }, 2000);
         {% endif %}
-        
-        {% if job.status == 'completed' %}
+
+        {% if stage == 'completed' %}
         // Confluence publication functionality
         document.addEventListener('DOMContentLoaded', function() {
             const confluenceForm = document.getElementById('confluenceForm');
@@ -702,7 +754,9 @@ class WebTemplates:
         <div class="container">
             <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
             <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
                 <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
                 <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
@@ -763,7 +817,9 @@ class WebTemplates:
         <div class="container">
             <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
             <div class="navbar-nav d-flex flex-row">
-                <a class="nav-link me-3" href="/"><i class="fas fa-upload me-1"></i>Загрузить файл</a>
+                <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
+                <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
                 <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
@@ -785,7 +841,7 @@ class WebTemplates:
                                     <th>Шаблон</th>
                                     <th>Статус</th>
                                     <th>Прогресс</th>
-                                    <th>Дата создания</th>
+                                    <th class="text-nowrap">Дата создания</th>
                                     <th>Действия</th>
                                 </tr>
                             </thead>
@@ -794,27 +850,33 @@ class WebTemplates:
                                     <tr>
                                         <td><i class="fas fa-file me-1"></i>{{ job.filename }}</td>
                                         {% if is_admin %}<td><small class="text-muted">{{ job.user_display }}</small></td>{% endif %}
-                                        <td><span class="badge bg-secondary">{{ job.template }}</span></td>
+                                        <td><span class="badge bg-secondary">{{ 'без протокола' if job.template == 'none' else job.template }}</span></td>
                                         <td>
-                                            {% if job.status == 'completed' %}
+                                            {% if job.stage == 'completed' %}
                                                 <span class="badge bg-success"><i class="fas fa-check me-1"></i>Завершено</span>
-                                            {% elif job.status == 'error' %}
-                                                <span class="badge bg-danger"><i class="fas fa-exclamation me-1"></i>Ошибка</span>
-                                            {% elif job.status == 'processing' %}
-                                                <span class="badge bg-primary"><i class="fas fa-cog fa-spin me-1"></i>Обработка</span>
+                                            {% elif job.stage == 'transcribed_only' %}
+                                                <span class="badge bg-success"><i class="fas fa-check me-1"></i>Транскрипция готова (без протокола)</span>
+                                            {% elif job.stage == 'protocol_error' %}
+                                                <span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle me-1"></i>Транскрипт готов, ошибка протокола</span>
+                                            {% elif job.stage == 'transcription_error' %}
+                                                <span class="badge bg-danger"><i class="fas fa-exclamation me-1"></i>Ошибка транскрибации</span>
+                                            {% elif job.stage == 'generating_protocol' %}
+                                                <span class="badge bg-primary"><i class="fas fa-cog fa-spin me-1"></i>Генерация протокола</span>
+                                            {% elif job.stage == 'transcribing' %}
+                                                <span class="badge bg-info text-dark"><i class="fas fa-microphone me-1"></i>Транскрибация</span>
                                             {% else %}
                                                 <span class="badge bg-warning"><i class="fas fa-clock me-1"></i>Ожидание</span>
                                             {% endif %}
                                         </td>
                                         <td>
                                             <div class="progress" style="height: 20px; width: 100px;">
-                                                <div class="progress-bar {% if job.status == 'completed' %}bg-success{% elif job.status == 'error' %}bg-danger{% else %}bg-primary{% endif %}" 
+                                                <div class="progress-bar {% if job.stage in ['completed', 'transcribed_only'] %}bg-success{% elif job.stage == 'protocol_error' %}bg-warning{% elif job.stage == 'transcription_error' %}bg-danger{% else %}bg-primary{% endif %}"
                                                     style="width: {{ job.progress }}%">
                                                     <small>{{ job.progress }}%</small>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td>{{ job.created_at }}</td>
+                                        <td class="text-nowrap">{{ job.created_at }}</td>
                                         <td>
                                             <a href="/status/{{ job.id }}" class="btn btn-sm btn-outline-primary">
                                                 <i class="fas fa-eye me-1"></i>Подробнее
@@ -864,7 +926,8 @@ class WebTemplates:
             <div class="navbar-nav d-flex flex-row">
                 <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
                 <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
-                <a class="nav-link" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
+                <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
+                <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
     </nav>
@@ -1317,9 +1380,11 @@ class WebTemplates:
     <nav class="navbar navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
-            <div class="navbar-nav">
-                <a class="nav-link" href="/"><i class="fas fa-home me-1"></i>Главная</a>
-                <a class="nav-link" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+            <div class="navbar-nav d-flex flex-row">
+                <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
+                <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
+                <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
     </nav>
@@ -1558,9 +1623,10 @@ class WebTemplates:
         <div class="container">
             <a class="navbar-brand" href="/"><i class="fas fa-microphone me-2"></i>Meeting Processor</a>
             <div class="navbar-nav d-flex flex-row">
-                <a class="nav-link me-3" href="/docs"><i class="fas fa-arrow-left me-1"></i>К документации</a>
                 <a class="nav-link me-3" href="/"><i class="fas fa-home me-1"></i>Главная</a>
-                <a class="nav-link" href="/jobs"><i class="fas fa-list me-1"></i>Задачи</a>
+                <a class="nav-link me-3" href="/jobs"><i class="fas fa-list me-1"></i>Все задачи</a>
+                <a class="nav-link me-3" href="/docs"><i class="fas fa-book me-1"></i>Документация</a>
+                <a class="nav-link" href="/statistics"><i class="fas fa-chart-bar me-1"></i>Статистика</a>
             </div>
         </div>
     </nav>

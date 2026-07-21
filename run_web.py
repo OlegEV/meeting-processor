@@ -94,6 +94,10 @@ def setup_logging(log_level: str = "DEBUG", log_file: str = "web_app.log"):
 
 logger = setup_logging()
 
+# Значение поля template, означающее «протокол не нужен, только транскрибация».
+# Не пустая строка, чтобы не ломать required-валидацию формы и DatabaseValidator.
+NO_PROTOCOL_TEMPLATE = 'none'
+
 def secure_filename_unicode(filename: str) -> str:
     """
     Безопасная обработка имени файла с поддержкой русских символов
@@ -407,7 +411,28 @@ class WorkingMeetingWebApp:
             if model:
                 return self.resolve_model(model)
         return self.get_default_model()
-    
+
+    def compute_job_stage(self, job: Dict[str, Any]) -> str:
+        """Определяет отображаемый этап задачи по status + наличию transcript_file.
+
+        Не вводит новых значений в колонку status (там по-прежнему только
+        uploaded/processing/completed/error) — статистика и очистка старых
+        задач в database/db_manager.py опираются на эти четыре значения.
+        Этап 'протокол не удался, но транскрипт готов' и обратное отличие
+        от 'транскрибация не удалась' выводятся из того, что transcript_file
+        уже записан в БД к моменту ошибки.
+        """
+        status = job.get('status') if job else None
+        has_transcript = bool(job.get('transcript_file')) if job else False
+        has_summary = bool(job.get('summary_file')) if job else False
+        if status == 'completed':
+            return 'completed' if has_summary else 'transcribed_only'
+        if status == 'error':
+            return 'protocol_error' if has_transcript else 'transcription_error'
+        if status == 'processing':
+            return 'generating_protocol' if has_transcript else 'transcribing'
+        return 'uploaded'
+
     def update_job_status(self, job_id: str, **kwargs):
         """Безопасно обновляет статус задачи в базе данных"""
         self.update_job_in_db(job_id, kwargs)
@@ -994,16 +1019,18 @@ class WorkingMeetingWebApp:
             templates = self.get_available_templates()
             available_models = self.get_available_models()
             current_model = self.get_job_model(job)
+            stage = self.compute_job_stage(job)
 
             return render_template_string(
                 self.templates.get_status_template(),
                 job_id=job_id,
                 job=job,
+                stage=stage,
                 templates=templates,
                 available_models=available_models,
                 current_model=current_model
             )
-        
+
         @self.app.route('/api/status/<job_id>')
         @require_auth(redirect_on_failure=False)
         def api_status(job_id: str):
@@ -1011,9 +1038,11 @@ class WorkingMeetingWebApp:
             job = self.get_job_status(job_id)
             if not job:
                 return jsonify({'error': 'Job not found or access denied'}), 404
-            
+
             return jsonify({
                 'status': job['status'],
+                'stage': self.compute_job_stage(job),
+                'transcript_ready': bool(job.get('transcript_file')),
                 'progress': job['progress'],
                 'message': job['message'],
                 'filename': job['filename'],
@@ -1028,10 +1057,6 @@ class WorkingMeetingWebApp:
             if not job:
                 flash('Задача не найдена или у вас нет доступа к ней', 'error')
                 return redirect(url_for('index'))
-            
-            if job['status'] != 'completed':
-                flash('Обработка еще не завершена', 'error')
-                return redirect(url_for('status', job_id=job_id))
             
             try:
                 if file_type == 'transcript':
@@ -1063,10 +1088,6 @@ class WorkingMeetingWebApp:
             if not job:
                 flash('Задача не найдена или у вас нет доступа к ней', 'error')
                 return redirect(url_for('index'))
-            
-            if job['status'] != 'completed':
-                flash('Обработка еще не завершена', 'error')
-                return redirect(url_for('status', job_id=job_id))
             
             try:
                 if file_type == 'transcript':
@@ -1164,7 +1185,66 @@ class WorkingMeetingWebApp:
                 logger.error(f"❌ Ошибка запуска генерации протокола: {e}")
                 flash(f'Ошибка запуска генерации протокола: {str(e)}', 'error')
                 return redirect(url_for('status', job_id=job_id))
-        
+
+        @self.app.route('/retry_protocol/<job_id>', methods=['POST'])
+        @require_auth()
+        def retry_protocol(job_id: str):
+            """Повторная генерация протокола для задачи, у которой транскрипция
+            прошла успешно, а генерация протокола завершилась ошибкой"""
+            job = self.get_job_status(job_id)
+            if not job:
+                flash('Задача не найдена', 'error')
+                return redirect(url_for('index'))
+
+            transcript_file = job.get('transcript_file')
+            if job['status'] != 'error' or not transcript_file or not os.path.exists(transcript_file):
+                flash('Повторная генерация протокола недоступна для этой задачи', 'error')
+                return redirect(url_for('status', job_id=job_id))
+
+            new_template = request.form.get('template') or job['template']
+            selected_model = self.resolve_model(
+                request.form.get('model') or self.get_job_model(job)
+            )
+
+            metadata = job.get('metadata')
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata) if metadata else {}
+                except (ValueError, TypeError):
+                    metadata = {}
+            elif not isinstance(metadata, dict):
+                metadata = {}
+            metadata['model'] = selected_model
+
+            try:
+                with self.db_manager._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE jobs SET
+                            status = 'processing',
+                            progress = 0,
+                            message = ?,
+                            error = NULL,
+                            template = ?,
+                            metadata = ?
+                        WHERE job_id = ?
+                    """, (
+                        f'Повторная генерация протокола в шаблоне "{new_template}"...',
+                        new_template,
+                        json.dumps(metadata),
+                        job_id
+                    ))
+                    conn.commit()
+
+                self.executor.submit(self.generate_protocol_sync, job_id, transcript_file, new_template)
+
+                flash(f'Запущена повторная генерация протокола (модель: {selected_model})', 'success')
+            except Exception as e:
+                logger.error(f"❌ Ошибка запуска повторной генерации протокола {job_id}: {e}")
+                flash(f'Ошибка запуска повторной генерации: {str(e)}', 'error')
+
+            return redirect(url_for('status', job_id=job_id))
+
         @self.app.route('/jobs')
         @require_auth()
         def jobs_list():
@@ -1197,6 +1277,7 @@ class WorkingMeetingWebApp:
                         'id': job_data['job_id'],
                         'filename': job_data['filename'],
                         'status': job_data['status'],
+                        'stage': self.compute_job_stage(job_data),
                         'template': job_data['template'],
                         'created_at': created_at.strftime('%Y-%m-%d %H:%M:%S'),
                         'progress': job_data.get('progress', 0),
@@ -1894,77 +1975,95 @@ class WorkingMeetingWebApp:
                 deepgram_model=self.processing_settings.get('deepgram_model', 'nova-2')
             )
 
-            # Основная обработка
-            success = processor.process_meeting(
+            # Извлекаем исходное имя файла (используется для поиска выходных файлов на обоих этапах)
+            original_filename = Path(job['file_path']).name
+            if original_filename.startswith(job_id + '_'):
+                original_filename = original_filename[len(job_id) + 1:]
+            input_name = Path(original_filename).stem
+
+            # ЭТАП 1: транскрибация
+            transcribe_success = processor.transcribe_only(
                 input_file_path=job['file_path'],
                 output_dir=str(output_dir),
-                name_mapping=None,
                 keep_audio_file=False,
-                template_type=job['template'],
                 temp_dir=str(job_temp_dir)
             )
-            
-            if success:
-                # Извлекаем исходное имя файла
-                original_filename = Path(job['file_path']).name
-                if original_filename.startswith(job_id + '_'):
-                    original_filename = original_filename[len(job_id) + 1:]
-                
-                input_name = Path(original_filename).stem
-                transcript_file = output_dir / f"{input_name}_transcript.txt"
-                summary_file = output_dir / f"{input_name}_summary.md"
-                
-                if transcript_file.exists() and summary_file.exists():
-                    # Обновляем задачу в базе данных
-                    with self.db_manager._get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            UPDATE jobs SET
-                                status = 'completed',
-                                progress = 100,
-                                message = 'Обработка завершена успешно!',
-                                transcript_file = ?,
-                                summary_file = ?,
-                                completed_at = CURRENT_TIMESTAMP
-                            WHERE job_id = ?
-                        """, (str(transcript_file), str(summary_file), job_id))
-                        conn.commit()
-                    
-                    logger.info(f"✅ Обработка файла {job_id} завершена успешно")
+
+            if not transcribe_success:
+                raise Exception("Транскрибирование завершилось с ошибкой")
+
+            transcript_file = output_dir / f"{input_name}_transcript.txt"
+            if not transcript_file.exists():
+                # Ищем транскрипт по маске, если точное имя не совпало
+                candidates = [f for f in output_dir.glob("*") if "_transcript.txt" in f.name]
+                if not candidates:
+                    raise Exception(f"Файл транскрипта не найден. Есть: {[f.name for f in output_dir.glob('*')]}")
+                transcript_file = candidates[0]
+
+            # Транскрипт готов — сразу делаем его доступным для скачивания,
+            # не дожидаясь генерации протокола (этап 2)
+            transcribe_only = job['template'] == NO_PROTOCOL_TEMPLATE
+            with self.db_manager._get_connection() as conn:
+                cursor = conn.cursor()
+                if transcribe_only:
+                    # Шаблон протокола не выбран — второй этап пропускается,
+                    # задача считается завершённой сразу после транскрибации
+                    cursor.execute("""
+                        UPDATE jobs SET
+                            status = 'completed',
+                            progress = 100,
+                            transcript_file = ?,
+                            message = 'Транскрибация завершена. Протокол не запрашивался.',
+                            completed_at = CURRENT_TIMESTAMP
+                        WHERE job_id = ?
+                    """, (str(transcript_file), job_id))
                 else:
-                    # Ищем любые файлы в директории
-                    all_files = list(output_dir.glob("*"))
-                    transcript_files = [f for f in all_files if "_transcript.txt" in f.name]
-                    summary_files = [f for f in all_files if "_summary.md" in f.name]
-                    
-                    logger.info(f"📁 Все файлы в {output_dir}: {[f.name for f in all_files]}")
-                    
-                    if transcript_files and summary_files:
-                        transcript_file = transcript_files[0]
-                        summary_file = summary_files[0]
-                        
-                        # Обновляем задачу в базе данных
-                        with self.db_manager._get_connection() as conn:
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                UPDATE jobs SET
-                                    status = 'completed',
-                                    progress = 100,
-                                    message = 'Обработка завершена успешно!',
-                                    transcript_file = ?,
-                                    summary_file = ?,
-                                    completed_at = CURRENT_TIMESTAMP
-                                WHERE job_id = ?
-                            """, (str(transcript_file), str(summary_file), job_id))
-                            conn.commit()
-                        
-                        logger.info(f"✅ Обработка файла {job_id} завершена успешно")
-                        return
-                    
-                    raise Exception(f"Файлы не найдены. Есть: {[f.name for f in all_files]}")
-            else:
-                raise Exception("Обработка завершилась с ошибкой")
-                
+                    cursor.execute("""
+                        UPDATE jobs SET
+                            transcript_file = ?,
+                            message = 'Транскрипция завершена, запуск генерации протокола...'
+                        WHERE job_id = ?
+                    """, (str(transcript_file), job_id))
+                conn.commit()
+
+            logger.info(f"✅ Транскрибация файла {job_id} завершена успешно: {transcript_file}")
+
+            if transcribe_only:
+                logger.info(f"ℹ️ Задача {job_id}: шаблон протокола не выбран, генерация протокола пропущена")
+                return
+
+            # ЭТАП 2: генерация протокола
+            protocol_success = processor.generate_protocol_from_transcript(
+                transcript_file_path=str(transcript_file),
+                output_dir=str(output_dir),
+                template_type=job['template']
+            )
+
+            if not protocol_success:
+                raise Exception("Генерация протокола завершилась с ошибкой")
+
+            summary_file = output_dir / f"{input_name}_summary.md"
+            if not summary_file.exists():
+                candidates = [f for f in output_dir.glob("*") if "_summary.md" in f.name]
+                if not candidates:
+                    raise Exception(f"Файл протокола не найден. Есть: {[f.name for f in output_dir.glob('*')]}")
+                summary_file = candidates[0]
+
+            with self.db_manager._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE jobs SET
+                        status = 'completed',
+                        progress = 100,
+                        message = 'Обработка завершена успешно!',
+                        summary_file = ?,
+                        completed_at = CURRENT_TIMESTAMP
+                    WHERE job_id = ?
+                """, (str(summary_file), job_id))
+                conn.commit()
+
+            logger.info(f"✅ Обработка файла {job_id} завершена успешно")
+
         except Exception as e:
             logger.error(f"❌ Ошибка обработки файла {job_id}: {e}")
             # Обновляем статус ошибки в базе данных
