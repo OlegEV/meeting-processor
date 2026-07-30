@@ -4,6 +4,7 @@
 """
 
 import os
+import math
 import subprocess
 import json
 from pathlib import Path
@@ -277,7 +278,9 @@ class AudioProcessor:
                 print(f"   Вывод ffprobe: {result.stdout}")
                 return []
             
-            num_chunks = int(total_duration // chunk_duration_seconds) + 1
+            # Округляем вверх, но с допуском в 1 секунду: иначе на длительности,
+            # кратной размеру части, создавалась лишняя пустая часть
+            num_chunks = max(1, math.ceil((total_duration - 1.0) / chunk_duration_seconds))
             print(f"📊 Создаю {num_chunks} частей в формате {output_extension}...")
             
             chunk_paths = []

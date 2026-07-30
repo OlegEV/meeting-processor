@@ -10,7 +10,7 @@ from typing import List, Optional
 
 try:
     from deepgram import DeepgramClient
-    # В SDK v5.3.0 нет отдельных классов ошибок, используем базовый Exception
+    # В SDK v5+ нет отдельных классов ошибок, используем базовый Exception
     DeepgramError = Exception
     DeepgramApiError = Exception
 except ImportError:
@@ -25,6 +25,11 @@ except ImportError:
     print("❌ Модуль httpx не установлен: pip install httpx")
     httpx = None
 
+# Максимальный размер файла для одного запроса к Deepgram (лимит API — 2 GB,
+# берём с запасом, чтобы не упереться в таймаут загрузки)
+MAX_DIRECT_SIZE_MB = 500
+
+
 class TranscriptionService:
     """Сервис для транскрипции аудио через Deepgram"""
     
@@ -36,7 +41,7 @@ class TranscriptionService:
         if not httpx:
             raise ImportError("httpx не установлен")
         
-        # Настройка httpx timeout для SDK v5
+        # Настройка httpx timeout для SDK v5+
         timeout_config = httpx.Timeout(
             timeout=float(timeout),
             connect=30.0,
@@ -45,7 +50,7 @@ class TranscriptionService:
             pool=10.0
         )
         
-        # Инициализация клиента Deepgram SDK v5.3.0
+        # Инициализация клиента Deepgram SDK (v5+, проверено на v7)
         # Timeout передается напрямую как параметр
         self.client = DeepgramClient(
             api_key=api_key,
@@ -76,9 +81,9 @@ class TranscriptionService:
         timeout = timeout_override or self.timeout
         
         def transcribe_request():
-            """Функция для выполнения запроса транскрипции через SDK v5"""
+            """Функция для выполнения запроса транскрипции через SDK v5+"""
             
-            # Создаем опции для API запроса (SDK v5 использует dict)
+            # Создаем опции для API запроса (SDK v5+ использует dict)
             options = {
                 "model": self.model,
                 "language": self.language,
@@ -91,8 +96,8 @@ class TranscriptionService:
                 "detect_language": self.options.get("detect_language", False)
             }
             
-            # Вызываем SDK v5 метод транскрипции
-            # В SDK v5.3.0 все параметры передаются как именованные аргументы
+            # Вызываем метод транскрипции SDK
+            # В SDK v5+ все параметры передаются как именованные аргументы
             # Timeout передается через request_options
             from deepgram.core.request_options import RequestOptions
             
@@ -124,7 +129,7 @@ class TranscriptionService:
                 print(f"❌ Неожиданная ошибка при транскрипции: {e}")
                 raise
             
-            # Анализируем структуру ответа (response - это SyncPrerecordedResponse из SDK v5)
+            # Анализируем структуру ответа (response - это ListenV1Response из SDK)
             channels = response.results.channels
             
             if channels and len(channels) > 0:
@@ -185,7 +190,7 @@ class TranscriptionService:
                 else:
                     print(f"🔄 Повторная попытка {attempt}/{self.max_retries}")
                 
-                # Вызываем функцию транскрипции (SDK v5 с httpx timeout)
+                # Вызываем функцию транскрипции (SDK v5+ с httpx timeout)
                 result = transcribe_request()
                 
                 if attempt > 1:
@@ -363,11 +368,13 @@ class TranscriptionService:
             return None
 
     def transcribe_audio(self, audio_path: str, chunk_duration_minutes: int = 10,
-                         chunk_output_dir: Optional[str] = None) -> Optional[str]:
+                         chunk_output_dir: Optional[str] = None,
+                         max_direct_size_mb: float = MAX_DIRECT_SIZE_MB) -> Optional[str]:
         """Транскрибирует аудио файл.
 
         chunk_output_dir — каталог для chunk-файлов при разбиении. Если не задан,
         chunk-файлы создаются рядом с исходным аудио (legacy).
+        max_direct_size_mb — максимальный размер файла, отправляемого в Deepgram одним запросом.
         """
         try:
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
@@ -385,17 +392,27 @@ class TranscriptionService:
                 duration_minutes = float(info['format']['duration']) / 60
                 print(f"⏱️ Длительность: {duration_minutes:.1f} минут")
 
-                # Разбиваем файл на части, если он слишком большой или длинный
-                if duration_minutes > 15 or file_size_mb > 25:
-                    print("🔪 Файл слишком длинный/большой, разбиваю на части...")
+                # Определяем реальный размер части: он не должен превышать ни настроенную
+                # длительность, ни лимит на размер одного запроса к Deepgram
+                effective_chunk_minutes = chunk_duration_minutes
+                if file_size_mb > max_direct_size_mb and duration_minutes > 0:
+                    mb_per_minute = file_size_mb / duration_minutes
+                    size_limited_minutes = max(1, int(max_direct_size_mb / mb_per_minute))
+                    effective_chunk_minutes = min(effective_chunk_minutes, size_limited_minutes)
+                    print(f"📦 Файл больше {max_direct_size_mb:.0f} MB, "
+                          f"уменьшаю размер части до {effective_chunk_minutes} мин")
+
+                # Разбиваем файл на части, только если он реально длиннее одной части
+                if duration_minutes > effective_chunk_minutes:
+                    print(f"🔪 Файл длиннее {effective_chunk_minutes} мин, разбиваю на части...")
                     from audio_processor import AudioProcessor
                     audio_proc = AudioProcessor()
                     chunk_paths = audio_proc.split_audio_file(
-                        audio_path, chunk_duration_minutes, output_dir=chunk_output_dir
+                        audio_path, effective_chunk_minutes, output_dir=chunk_output_dir
                     )
 
                     if chunk_paths:
-                        return self.transcribe_audio_chunks(chunk_paths, chunk_duration_minutes)
+                        return self.transcribe_audio_chunks(chunk_paths, effective_chunk_minutes)
                     else:
                         print("❌ Не удалось разбить файл")
                         return None

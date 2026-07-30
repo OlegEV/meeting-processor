@@ -51,7 +51,7 @@
   },
 
   "chat": {
-    "max_tokens": 1500,
+    "max_tokens": 2500,
     "temperature": 0.3,
     "max_transcript_chars": 200000,
     "max_history_messages": 20,

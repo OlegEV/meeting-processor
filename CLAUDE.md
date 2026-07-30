@@ -49,7 +49,7 @@ python -m pytest tests/test_database_models.py::TestUser -v   # single test
 ### Core pipeline (`MeetingProcessor.process_meeting` in `meeting_processor.py`)
 
 1. `AudioProcessor` (`audio_processor.py`) — inspects the input, extracts audio from video via ffmpeg, and converts non-native formats (`.wma`, `.opus`) to WAV. Native Deepgram formats (mp3/wav/flac/aac/m4a/ogg) skip conversion.
-2. `TranscriptionService` (`transcription_service.py`) — calls Deepgram SDK v5 with retry/backoff. Long files are split into chunks of `chunk_duration_minutes` and re-stitched. Returns diarized text with `Speaker 0/1/...` labels.
+2. `TranscriptionService` (`transcription_service.py`) — calls Deepgram SDK v7 (`client.listen.v1.media.transcribe_file`) with retry/backoff. Long files are split into chunks of `chunk_duration_minutes` and re-stitched. Returns diarized text with `Speaker 0/1/...` labels.
 3. `ProtocolGenerator` (`protocol_generator.py`) — first pass: feeds the raw transcript + selected template to Claude (via `OpenRouterClient`) to produce a draft protocol.
 4. `TeamIdentifier` + `SpeakerMapper` (`team_identifier.py`, `speaker_mapper.py`) — analyse both protocol and transcript against `team_config.json` to map `Speaker N` → real names. Produces a combined replacement map.
 5. Replacements are applied to the transcript; if any participants were identified, the protocol is **regenerated** with team context for higher quality.
@@ -74,7 +74,7 @@ Flask app served via gunicorn in production. Notable structural points:
 
 ### Telegram bot (`telegram_bot.py`)
 
-Uses `python-telegram-bot` v20 (async). Accepts file uploads and HTTP URLs (handled by `url_file_processor.py`). Maintains a per-chat conversation state for picking the template. Long-running processing runs in a worker; progress updates edit a status message in the chat.
+Uses `python-telegram-bot` v22 (async). Accepts file uploads and HTTP URLs (handled by `url_file_processor.py`). Maintains a per-chat conversation state for picking the template. Long-running processing runs in a worker; progress updates edit a status message in the chat.
 
 ### Configuration files
 

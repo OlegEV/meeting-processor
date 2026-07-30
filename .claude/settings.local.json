@@ -4,7 +4,26 @@
       "Bash(python -c \"import json; json.load\\(open\\('config.json', encoding='utf-8'\\)\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('run_web.py', encoding='utf-8'\\).read\\(\\)\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('web_templates.py', encoding='utf-8'\\).read\\(\\)\\)\")",
-      "WebFetch(domain:pypi.org)"
+      "WebFetch(domain:pypi.org)",
+      "Bash(awk 'NR>=164 && NR<=631 && /[A-Za-z]/ {print NR\": \"$0}' meeting_templates.py)",
+      "Bash(awk 'NR>=164 && NR<=631' meeting_templates.py)",
+      "Bash(python -c ' *)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(python *)",
+      "Bash(pip --version)",
+      "Bash(pip list *)",
+      "Bash(pip show *)",
+      "Bash(.venv/Scripts/python.exe --version)",
+      "Bash(.venv/Scripts/python.exe -m pip list)",
+      "mcp__context7__resolve-library-id",
+      "WebFetch(domain:docs.python-telegram-bot.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(.venv/Scripts/python.exe -m pip install --upgrade --disable-pip-version-check python-telegram-bot deepgram-sdk openai requests python-dateutil fuzzywuzzy python-Levenshtein httpx aiofiles aiohttp Flask Werkzeug gunicorn PyJWT openpyxl cryptography pytest coverage selenium psutil python-dotenv)",
+      "Bash(.venv/Scripts/python.exe -m pip check)",
+      "Bash(.venv/Scripts/python.exe -m pip list --outdated --format=json)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -x -q --no-header -p no:cacheprovider -m \"not slow\" --ignore=tests/test_frontend_ui.py)"
     ]
   }
 }
