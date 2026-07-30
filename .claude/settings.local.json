@@ -23,7 +23,13 @@
       "Bash(.venv/Scripts/python.exe -m pip check)",
       "Bash(.venv/Scripts/python.exe -m pip list --outdated --format=json)",
       "Bash(.venv/Scripts/python.exe -c ' *)",
-      "Bash(.venv/Scripts/python.exe -m pytest tests/ -x -q --no-header -p no:cacheprovider -m \"not slow\" --ignore=tests/test_frontend_ui.py)"
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -x -q --no-header -p no:cacheprovider -m \"not slow\" --ignore=tests/test_frontend_ui.py)",
+      "PowerShell(python \"C:\\\\Users\\\\Egorovov\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Work-git-meeting-processor\\\\69287b2e-e135-4bb8-8712-0bf3301b2ffa\\\\scratchpad\\\\check_prompt.py\")",
+      "PowerShell(python \"C:\\\\Users\\\\Egorovov\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Work-git-meeting-processor\\\\69287b2e-e135-4bb8-8712-0bf3301b2ffa\\\\scratchpad\\\\check_e2e.py\")",
+      "PowerShell(python -m py_compile meeting_templates.py protocol_generator.py openrouter_client.py file_utils.py meeting_processor.py; if \\($?\\) { \"compile OK\" }; python -c \"import json;json.load\\(open\\('templates_config.json',encoding='utf-8'\\)\\);print\\('json OK'\\)\")",
+      "PowerShell(python run_tests.py quick 2>&1 | Select-Object -Last 25)",
+      "PowerShell(python -m pytest tests/ -q -m \"not slow\" 2>&1 | Select-Object -Last 15)",
+      "PowerShell(python -c \"import flask\" 2>&1 | Select-Object -First 2; python -m pytest tests/ -q --ignore=tests/test_end_to_end.py --ignore=tests/test_flask_routes.py --ignore=tests/test_frontend.py -p no:cacheprovider 2>&1 | Select-Object -Last 12)"
     ]
   }
 }

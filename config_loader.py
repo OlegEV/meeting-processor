@@ -100,6 +100,7 @@ class ConfigLoader:
         # Настройки Deepgram
         settings['deepgram_language'] = config.get("settings", {}).get("language", "ru")
         settings['deepgram_model'] = config.get("settings", {}).get("deepgram_model", "nova-3")
+        settings['deepgram_proxy'] = config.get("settings", {}).get("deepgram_proxy", {})
         
         # Опции Deepgram
         settings['deepgram_options'] = config.get("deepgram_options", {})

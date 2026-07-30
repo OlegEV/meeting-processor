@@ -19,7 +19,12 @@ except ImportError:
 
 class ProtocolGenerator:
     """Генератор протоколов встреч через OpenRouter API"""
-    
+
+    # Протокол — фактологический документ, поэтому по умолчанию генерируем
+    # с низкой температурой. Переопределяется через
+    # template_settings.temperature в templates_config.json.
+    DEFAULT_TEMPERATURE = 0.2
+
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
         if not OpenRouterClient:
             raise ImportError("openrouter_client не найден")
@@ -45,39 +50,76 @@ class ProtocolGenerator:
             print(f"   📝 Тип шаблона: {template_type}")
             print(f"   🔑 API ключ: {'✅ установлен' if self.client.api_key else '❌ отсутствует'}")
             
-            # Подготавливаем промпт
-            if templates_system:
+            # Пробуем структурированный промпт: базовый промпт, шаблон
+            # протокола и расшифровка идут отдельными блоками запроса
+            template_parts = None
+            if templates_system and hasattr(templates_system, "get_template_parts"):
+                template_parts = templates_system.get_template_parts(
+                    template_type, transcript, file_datetime_info
+                )
+
+            messages = None
+            prompt = None
+
+            if template_parts:
+                messages = self._build_structured_messages(
+                    templates_system, template_parts, transcript, team_identification
+                )
+                print(f"📝 Используется структурированный шаблон: {template_type}")
+                if team_identification and team_identification.get("identified", False):
+                    print("👥 Добавлен контекст команды в промпт")
+            elif templates_system:
                 # Используем систему шаблонов
                 prompt = templates_system.get_template(template_type, transcript, file_datetime_info)
                 prompt = prompt.format(transcript=transcript)
                 print(f"📝 Используется шаблон: {template_type}")
-                
+
                 # Добавляем информацию о команде, если доступна
                 if team_identification and team_identification.get("identified", False):
                     team_context = self._generate_team_context(team_identification, template_type)
                     prompt = f"{prompt}\n\n{team_context}"
                     print("👥 Добавлен контекст команды в промпт")
-                
+
             else:
                 # Встроенный шаблон
                 prompt = self._generate_builtin_prompt(transcript, file_datetime_info, team_identification)
                 print("📝 Используется встроенный стандартный шаблон")
-            
-            # Получаем настройки токенов
+
+            # Получаем настройки генерации
             max_tokens = 2000
+            temperature = self.DEFAULT_TEMPERATURE
             if templates_system and hasattr(templates_system, 'config'):
-                max_tokens = templates_system.config.get("template_settings", {}).get("max_tokens", 2000)
-            
+                template_settings = templates_system.config.get("template_settings", {})
+                max_tokens = template_settings.get("max_tokens", 2000)
+                temperature = template_settings.get("temperature", self.DEFAULT_TEMPERATURE)
+
             print(f"🚀 Отправляю запрос к OpenRouter API...")
-            print(f"   📏 Длина промпта: {len(prompt)} символов")
+            if messages:
+                prompt_length = sum(
+                    len(block.get("text", ""))
+                    for message in messages
+                    for block in message["content"]
+                )
+            else:
+                prompt_length = len(prompt)
+            print(f"   📏 Длина промпта: {prompt_length} символов")
             print(f"   🎯 Максимум токенов: {max_tokens}")
-            
+            print(f"   🌡️ Температура: {temperature}")
+
             # Отправляем запрос к OpenRouter
-            summary = self.client.create_message_anthropic_format(
-                content=prompt,
-                max_tokens=max_tokens
-            )
-            
+            if messages:
+                summary = self.client.create_message(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature
+                )
+            else:
+                summary = self.client.create_message_anthropic_format(
+                    content=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature
+                )
+
             if not summary:
                 print(f"❌ Не удалось получить ответ от OpenRouter API")
                 return None
@@ -97,7 +139,59 @@ class ProtocolGenerator:
             print(f"❌ Ошибка при создании протокола: {e}")
             return None
     
-    def _generate_builtin_prompt(self, transcript: str, file_datetime_info: Dict = None, 
+    def _build_structured_messages(self, templates_system, template_parts: Dict,
+                                   transcript: str, team_identification: Dict = None) -> list:
+        """Собирает запрос из отдельных блоков.
+
+        Раскладка запроса:
+        - system: базовый промпт (роль, правила, стиль) — не смешивается с данными;
+        - user, блок 1: расшифровка в теге <transcript> (помечен cache_control,
+          чтобы префикс кешировался между запросами);
+        - user, блок 2: метаданные, контекст команды, шаблон протокола в теге
+          <protocol_template> и итоговая задача — инструкции идут после данных.
+        """
+        system_message = {
+            "role": "system",
+            "content": [
+                {"type": "text", "text": template_parts["base_prompt"]},
+            ],
+        }
+
+        transcript_block = templates_system.wrap_transcript(transcript)
+
+        instruction_parts = []
+        meta = template_parts.get("meta", "")
+        if meta:
+            instruction_parts.append(meta)
+
+        if team_identification and team_identification.get("identified", False):
+            instruction_parts.append(
+                self._generate_team_context(team_identification, template_parts.get("template_type"))
+            )
+
+        instruction_parts.append(
+            templates_system.wrap_protocol_template(template_parts.get("protocol_structure", ""))
+        )
+
+        final_instruction = template_parts.get("final_instruction", "")
+        if final_instruction:
+            instruction_parts.append(final_instruction)
+
+        user_message = {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": transcript_block,
+                    "cache_control": {"type": "ephemeral"},
+                },
+                {"type": "text", "text": "\n\n".join(instruction_parts)},
+            ],
+        }
+
+        return [system_message, user_message]
+
+    def _generate_builtin_prompt(self, transcript: str, file_datetime_info: Dict = None,
                                team_identification: Dict = None) -> str:
         """Генерирует встроенный промпт для Claude"""
         datetime_info = ""

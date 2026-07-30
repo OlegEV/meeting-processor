@@ -813,7 +813,8 @@ class MeetingBot:
                 chunk_duration_minutes=self.config.get("processing", {}).get("chunk_duration_minutes", 15),
                 template_type=template_name,
                 deepgram_language=self.config.get("processing", {}).get("language", "ru"),
-                deepgram_model=self.config.get("processing", {}).get("deepgram_model", "nova-2")
+                deepgram_model=self.config.get("processing", {}).get("deepgram_model", "nova-2"),
+                deepgram_proxy=self.config.get("processing", {}).get("deepgram_proxy")
             )
             
             # Устанавливаем callback для прогресса, если поддерживается

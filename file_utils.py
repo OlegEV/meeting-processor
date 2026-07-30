@@ -10,7 +10,12 @@ from typing import Dict
 
 class FileUtils:
     """Утилиты для работы с файлами"""
-    
+
+    # Служебный заголовок файла транскрипта (см. save_transcript / strip_transcript_header)
+    TRANSCRIPT_HEADER_MARKER = "ТРАНСКРИПТ ВСТРЕЧИ"
+    TRANSCRIPT_HEADER_SEPARATOR = "-" * 80
+
+
     @staticmethod
     def get_file_datetime_info(file_path: str) -> Dict:
         """Получает информацию о дате и времени файла"""
@@ -99,11 +104,38 @@ class FileUtils:
 Идентификация команды: ❌ Отключена или не применялась"""
         
         transcript_with_header = f"{transcript_header}\n\n{'-' * 80}\n\n{transcript}"
-        
+
         with open(transcript_path, "w", encoding="utf-8") as f:
             f.write(transcript_with_header)
         print(f"✅ Транскрипт сохранен: {transcript_path}")
-    
+
+    @staticmethod
+    def strip_transcript_header(transcript_text: str) -> str:
+        """Убирает служебный заголовок, добавленный save_transcript.
+
+        Нужно, чтобы в промпт уходила только речь участников: метаданные файла
+        (дата, шаблон, статистика идентификации) не должны попадать в блок
+        расшифровки и выглядеть для модели как факты встречи или инструкции.
+        """
+        if not transcript_text:
+            return transcript_text
+
+        if not transcript_text.lstrip().startswith(FileUtils.TRANSCRIPT_HEADER_MARKER):
+            return transcript_text
+
+        separator_position = transcript_text.find(FileUtils.TRANSCRIPT_HEADER_SEPARATOR)
+        if separator_position == -1:
+            return transcript_text
+
+        body_start = separator_position + len(FileUtils.TRANSCRIPT_HEADER_SEPARATOR)
+        return transcript_text[body_start:].lstrip("\n")
+
+    @staticmethod
+    def load_transcript(transcript_path: str) -> str:
+        """Читает файл транскрипта без служебного заголовка"""
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            return FileUtils.strip_transcript_header(f.read())
+
     @staticmethod
     def save_team_info(team_info_path: str, team_identification: Dict, 
                       file_datetime_info: Dict, input_file_path: str, template_type: str):

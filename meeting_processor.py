@@ -92,15 +92,17 @@ class MeetingProcessor:
                  progress_callback: Callable[[int, str], None] = None,
                  deepgram_max_retries: int = 3,
                  deepgram_language: str = "ru",
-                 deepgram_model: str = "nova-2"):
+                 deepgram_model: str = "nova-3",
+                 deepgram_proxy: dict = None):
         """
         Инициализация процессора встреч
-        
+
         Args:
             progress_callback: Функция для отправки прогресса (progress, message)
             deepgram_max_retries: Максимальное количество повторных попыток при таймауте Deepgram
             deepgram_language: Язык для транскрипции Deepgram
             deepgram_model: Модель Deepgram для транскрипции
+            deepgram_proxy: Настройки прокси для Deepgram (settings.deepgram_proxy)
         """
         # Инициализируем компоненты
         self.audio_processor = AudioProcessor()
@@ -110,7 +112,8 @@ class MeetingProcessor:
             deepgram_options,
             deepgram_max_retries,
             deepgram_language,
-            deepgram_model
+            deepgram_model,
+            deepgram_proxy
         )
         self.protocol_generator = ProtocolGenerator(claude_api_key, claude_model)
         
@@ -323,11 +326,11 @@ class MeetingProcessor:
             # Создаем выходную директорию
             Path(output_dir).mkdir(exist_ok=True)
             
-            # Читаем транскрипт
+            # Читаем транскрипт без служебного заголовка: в промпт должна
+            # уходить только речь участников
             self._update_progress(20, "Чтение транскрипта...")
-            with open(transcript_file_path, "r", encoding="utf-8") as f:
-                transcript = f.read()
-            
+            transcript = FileUtils.load_transcript(transcript_file_path)
+
             if not transcript.strip():
                 self._update_progress(0, f"Транскрипт пустой: {transcript_file_path}")
                 return False
@@ -618,9 +621,10 @@ def main():
             deepgram_timeout=settings['deepgram_timeout'],
             chunk_duration_minutes=settings['chunk_minutes'],
             deepgram_language=settings.get('deepgram_language', 'ru'),
-            deepgram_model=settings.get('deepgram_model', 'nova-2')
+            deepgram_model=settings.get('deepgram_model', 'nova-2'),
+            deepgram_proxy=settings.get('deepgram_proxy')
         )
-        
+
         success = processor.transcribe_only(
             input_file_path=settings['input_file'],
             output_dir=settings['output_dir'],
@@ -707,9 +711,10 @@ def main():
             templates_config_file=settings['templates_config'],
             team_config_file=settings['team_config'],
             deepgram_language=settings.get('deepgram_language', 'ru'),
-            deepgram_model=settings.get('deepgram_model', 'nova-2')
+            deepgram_model=settings.get('deepgram_model', 'nova-2'),
+            deepgram_proxy=settings.get('deepgram_proxy')
         )
-        
+
         success = processor.process_meeting(
             input_file_path=settings['input_file'],
             output_dir=settings['output_dir'],

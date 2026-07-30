@@ -34,13 +34,13 @@ class TranscriptionService:
     """Сервис для транскрипции аудио через Deepgram"""
     
     def __init__(self, api_key: str, timeout: int = 300, options: dict = None, max_retries: int = 3,
-                 language: str = "multi", model: str = "nova-3"):
+                 language: str = "multi", model: str = "nova-3", proxy_config: dict = None):
         if not DeepgramClient:
             raise ImportError("deepgram-sdk не установлен")
-        
+
         if not httpx:
             raise ImportError("httpx не установлен")
-        
+
         # Настройка httpx timeout для SDK v5+
         timeout_config = httpx.Timeout(
             timeout=float(timeout),
@@ -49,13 +49,27 @@ class TranscriptionService:
             write=30.0,
             pool=10.0
         )
-        
+
         # Инициализация клиента Deepgram SDK (v5+, проверено на v7)
         # Timeout передается напрямую как параметр
-        self.client = DeepgramClient(
-            api_key=api_key,
-            timeout=timeout_config
-        )
+        client_kwargs = {
+            "api_key": api_key,
+            "timeout": timeout_config,
+        }
+
+        # Прокси для доступа к api.deepgram.com: SDK принимает готовый
+        # httpx.Client, поэтому настройки прокси задаём на уровне httpx
+        self.proxy_url = self._resolve_proxy_url(proxy_config)
+        if self.proxy_url:
+            client_kwargs["httpx_client"] = httpx.Client(
+                proxy=self.proxy_url,
+                timeout=timeout_config,
+                follow_redirects=True,
+                verify=self._resolve_proxy_verify(proxy_config)
+            )
+            print(f"🌐 Deepgram через прокси: {self._mask_proxy_url(self.proxy_url)}")
+
+        self.client = DeepgramClient(**client_kwargs)
         self.timeout = timeout
         self.max_retries = max_retries
         self.language = language
@@ -75,7 +89,70 @@ class TranscriptionService:
         self.options = {**default_options, **(options or {})}
         # Принудительно включаем диаризацию для идентификации спикеров
         self.options["diarize"] = True
-    
+
+    @staticmethod
+    def _resolve_proxy_url(proxy_config: dict = None) -> Optional[str]:
+        """Определяет адрес прокси для запросов к Deepgram.
+
+        Приоритет:
+        1. переменная окружения DEEPGRAM_PROXY_URL (удобно для секретов и
+           переопределения в контейнере);
+        2. settings.deepgram_proxy из config.json при enabled = true.
+
+        Если прокси не задан, возвращает None — httpx в этом случае продолжает
+        учитывать системные HTTP_PROXY/HTTPS_PROXY, как и раньше.
+        """
+        env_url = os.getenv("DEEPGRAM_PROXY_URL", "").strip()
+        if env_url:
+            return env_url
+
+        if not proxy_config or not proxy_config.get("enabled", False):
+            return None
+
+        url = str(proxy_config.get("url", "")).strip()
+        if not url:
+            print("⚠️ settings.deepgram_proxy.enabled = true, но url не задан — прокси не используется")
+            return None
+
+        # Без схемы httpx не поймёт адрес: для форвард-прокси это обычно http://
+        if "://" not in url:
+            url = f"http://{url}"
+
+        return url
+
+    @staticmethod
+    def _resolve_proxy_verify(proxy_config: dict = None):
+        """Возвращает значение verify для httpx.
+
+        ca_bundle нужен, когда прокси подменяет сертификат (TLS inspection) и
+        цепочку нужно проверять по корпоративному корневому сертификату.
+        verify_ssl = false отключает проверку полностью — только для отладки.
+        """
+        proxy_config = proxy_config or {}
+
+        ca_bundle = str(proxy_config.get("ca_bundle", "")).strip()
+        if ca_bundle:
+            if os.path.exists(ca_bundle):
+                return ca_bundle
+            print(f"⚠️ CA-бандл прокси не найден: {ca_bundle} — использую стандартные корневые сертификаты")
+
+        verify_ssl = proxy_config.get("verify_ssl", True)
+        if not verify_ssl:
+            print("⚠️ Проверка TLS-сертификатов для Deepgram отключена (verify_ssl = false)")
+        return bool(verify_ssl)
+
+    @staticmethod
+    def _mask_proxy_url(proxy_url: str) -> str:
+        """Убирает логин/пароль из адреса прокси перед выводом в лог"""
+        try:
+            url = httpx.URL(proxy_url)
+            if url.username or url.password:
+                return str(url.copy_with(username="***", password="***"))
+            return str(url)
+        except Exception:
+            return proxy_url
+
+
     def transcribe_audio_with_timeout(self, audio_data: bytes, timeout_override: Optional[int] = None) -> Optional[str]:
         """Транскрибирует аудио с настраиваемым таймаутом и retry при таймаутах"""
         timeout = timeout_override or self.timeout

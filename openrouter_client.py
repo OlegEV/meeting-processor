@@ -132,21 +132,23 @@ class OpenRouterClient:
             print(f"❌ Ошибка при обращении к OpenRouter API: {e}")
             return None
     
-    def create_message_anthropic_format(self, 
-                                      content: str, 
-                                      max_tokens: int = 2000) -> Optional[str]:
+    def create_message_anthropic_format(self,
+                                      content: str,
+                                      max_tokens: int = 2000,
+                                      temperature: float = 0.7) -> Optional[str]:
         """
         Создает сообщение в формате, совместимом с Anthropic API
-        
+
         Args:
             content: Содержимое сообщения пользователя
             max_tokens: Максимальное количество токенов в ответе
-            
+            temperature: Температура генерации (0.0 - 1.0)
+
         Returns:
             Текст ответа или None в случае ошибки
         """
         messages = [{"role": "user", "content": content}]
-        return self.create_message(messages, max_tokens)
+        return self.create_message(messages, max_tokens, temperature)
     
     @property
     def available_models(self) -> Dict[str, str]:

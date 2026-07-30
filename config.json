@@ -70,7 +70,13 @@
     "max_duration_minutes": 240,
     "request_pause_seconds": 10,
     "max_retries": 3,
-    "template_type": "standard"
+    "template_type": "standard",
+    "deepgram_proxy": {
+      "enabled": true,
+      "url": "http://10.1.24.22:8443",
+      "verify_ssl": true,
+      "ca_bundle": ""
+    }
   },
  
   "confluence": {

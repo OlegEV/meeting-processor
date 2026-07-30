@@ -2192,7 +2192,8 @@ class WorkingMeetingWebApp:
                 template_type=job['template'],
                 progress_callback=progress_callback,
                 deepgram_language=self.processing_settings.get('language', 'ru'),
-                deepgram_model=self.processing_settings.get('deepgram_model', 'nova-2')
+                deepgram_model=self.processing_settings.get('deepgram_model', 'nova-2'),
+                deepgram_proxy=self.processing_settings.get('deepgram_proxy')
             )
 
             # Извлекаем исходное имя файла (используется для поиска выходных файлов на обоих этапах)

@@ -2,9 +2,10 @@
   "default_template": "standard",
   "template_settings": {
     "include_technical_info": false,
-    "include_file_datetime": false,
+    "include_file_datetime": true,
     "language": "ru",
-    "max_tokens": 8000
+    "max_tokens": 8000,
+    "temperature": 0.2
   },
   "custom_templates": {
     "example_custom": "Это пример пользовательского шаблона.\n{datetime_info}\nТранскрипт:\n{transcript}\n\nСоздай краткий протокол:\n1. Участники\n2. Основные темы\n3. Решения"
