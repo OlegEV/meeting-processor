@@ -511,9 +511,9 @@ Continue with performance testing and documentation.
         # Should be denied
         self.assertEqual(response.status_code, 404)
         
-        # Step 5: User 2 tries to download files
+        # Step 5: Direct result links are public; this job has no transcript file
         response = self.client.get(f'/download/{job_id}/transcript', headers=user2_headers)
-        self.assertEqual(response.status_code, 302)  # Redirect due to access denied
+        self.assertEqual(response.status_code, 404)
         
         # Step 6: User 1 can still access their own job
         response = self.client.get(f'/status/{job_id}', headers=self.auth_headers)

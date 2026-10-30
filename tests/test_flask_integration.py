@@ -117,12 +117,16 @@ class TestFlaskIntegration(unittest.TestCase):
     
     def tearDown(self):
         """Clean up test files"""
-        try:
-            os.unlink(self.test_db.name)
-            os.unlink(self.config_file.name)
-            os.unlink(self.api_keys_file.name)
-        except FileNotFoundError:
-            pass
+        self.app.executor.shutdown(wait=True)
+        self.client = None
+        self.app = None
+        import gc
+        gc.collect()
+        for path in (self.test_db.name, self.config_file.name, self.api_keys_file.name):
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
     
     def test_health_endpoint(self):
         """Test health check endpoint"""
@@ -163,21 +167,47 @@ class TestFlaskIntegration(unittest.TestCase):
         test_file_content = b'fake audio content'
         test_file = io.BytesIO(test_file_content)
         
+        participants = [{
+            'full_name': 'Иван Петров',
+            'company': 'ООО Пример',
+            'position': 'Руководитель проекта'
+        }]
         data = {
             'file': (test_file, 'test_meeting.mp3'),
-            'template': 'standard'
+            'template': 'standard',
+            'participants': json.dumps(participants, ensure_ascii=False)
         }
-        
+
         with patch.object(self.app, 'process_file_sync'):
-            response = self.client.post('/upload', 
-                                      data=data, 
+            response = self.client.post('/upload',
+                                      data=data,
                                       headers=self.auth_headers,
                                       content_type='multipart/form-data')
-        
-        # Should redirect to status page
+
+        # Should redirect to status page and preserve participants in job metadata
         self.assertEqual(response.status_code, 302)
         self.assertIn('/status/', response.location)
+        job_id = response.location.rstrip('/').split('/')[-1]
+        job = self.app.db_manager.get_job_by_id(job_id)
+        metadata = json.loads(job['metadata'])
+        self.assertEqual(metadata['participants'], participants)
     
+    def test_upload_rejects_invalid_participants(self):
+        """Test upload validation of participants JSON"""
+        data = {
+            'file': (io.BytesIO(b'fake audio content'), 'test_meeting.mp3'),
+            'template': 'standard',
+            'participants': json.dumps([{'company': 'ООО Пример'}], ensure_ascii=False)
+        }
+
+        response = self.client.post('/upload',
+                                  data=data,
+                                  headers=self.auth_headers,
+                                  content_type='multipart/form-data')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('full_name', response.get_json()['error'])
+
     def test_upload_invalid_file_type(self):
         """Test upload with invalid file type"""
         test_file = io.BytesIO(b'fake content')
@@ -574,9 +604,8 @@ Topic: Test Confluence Publication
             
             mock_send_file.return_value = 'file_content'
             
-            # Test transcript download
-            response = self.client.get('/download/download_job/transcript',
-                                     headers=self.auth_headers)
+            # Direct links work without authentication
+            response = self.client.get('/download/download_job/transcript')
             
             mock_send_file.assert_called_once()
             call_args = mock_send_file.call_args
@@ -609,8 +638,7 @@ This is test content for viewing.
         with patch('os.path.exists', return_value=True), \
              patch('builtins.open', unittest.mock.mock_open(read_data=test_content)):
             
-            response = self.client.get('/view/view_job/summary',
-                                     headers=self.auth_headers)
+            response = self.client.get('/view/view_job/summary')
             
             self.assertEqual(response.status_code, 200)
             self.assertIn(b'Meeting Protocol', response.data)

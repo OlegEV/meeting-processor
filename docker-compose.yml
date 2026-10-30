@@ -15,7 +15,6 @@ services:
       - ./meeting_processor.db:/app/meeting_processor.db
       - ./config.json:/app/config.json:ro
       - ./templates_config.json:/app/templates_config.json:ro
-      - ./team_config.json:/app/team_config.json:ro
     environment:
       - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
       - CLAUDE_API_KEY=${CLAUDE_API_KEY}
@@ -29,27 +28,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - meeting-network
-
-  # Telegram бот
-  meeting-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile.bot
-    container_name: meeting-processor-bot
-    volumes:
-      - ./logs:/app/logs
-      - ./temp_bot_files:/app/temp_bot_files
-      - ./meeting_output:/app/meeting_output
-      - ./bot_config.json:/app/bot_config.json:ro
-      - ./templates_config.json:/app/templates_config.json:ro
-      - ./team_config.json:/app/team_config.json:ro
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
-    restart: unless-stopped
     networks:
       - meeting-network
 

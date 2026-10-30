@@ -2,10 +2,8 @@
   "paths": {
     "input_file": "20250526.mp3",
     "output_dir": "meeting_output",
-    "names_config": "names_config.json",
     "templates_config": "templates_config.json",
-    "api_keys_config": "api_keys.json",
-    "team_config": "team_config.json"
+    "api_keys_config": "api_keys.json"
    },
 
   "auth": {

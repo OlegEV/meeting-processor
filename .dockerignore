@@ -5,7 +5,6 @@
 
 # Docker
 Dockerfile.web
-Dockerfile.bot
 
 docker-compose.yml
 .dockerignore
@@ -22,7 +21,6 @@ logs/
 audio/
 source/
 temp_files/
-temp_bot_files/
 meeting_output/
 __pycache__/
 *.pyc
@@ -44,20 +42,14 @@ desktop.ini
 
 # Documentation (исключаем общий README, но разрешаем файлы документации для веб-интерфейса)
 readme.md
-readme_docker.md
 templates_readme.md
-bot_setup.md
 DEPLOYMENT_README.md
 
 # Разрешаем файлы документации для веб-интерфейса:
 # meeting_recording_guidelines.md
-# quick_meeting_checklist.md  
+# quick_meeting_checklist.md
 # recording_setup_guide.md
 # MEETING_GUIDELINES_README.md
-
-# Windows
-run_bot.bat
-setup_bot.bat
 
 # Output directories
 output/

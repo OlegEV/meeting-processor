@@ -1,6 +1,6 @@
 # Процессор видео встреч
 
-Скрипт для автоматической обработки видеозаписей встреч: извлечение аудио, транскрипция, замена имен участников и создание протокола встречи.
+Скрипт для автоматической обработки видеозаписей встреч: извлечение аудио, транскрипция и создание протокола встречи.
 
 ## Установка
 
@@ -34,28 +34,13 @@ python install_ffmpeg.py
 {
   "paths": {
     "input_file": "path/to/your/meeting.mp4",
-    "output_dir": "meeting_output",
-    "names_config": "names_config.json"
+    "output_dir": "meeting_output"
   },
   "settings": {
     "keep_audio_file": false,
     "language": "ru",
     "deepgram_model": "nova-2"
   }
-}
-```
-
-### 2. Конфигурация имен участников (names_config.json)
-
-Отредактируйте файл `names_config.json` для замены автоматически определенных имен спикеров на реальные имена:
-
-```json
-{
-  "Speaker 0": "Иван Петров",
-  "Speaker 1": "Мария Сидорова", 
-  "Speaker 2": "Алексей Иванов",
-  "Спикер 0": "Иван Петров",
-  "Спикер 1": "Мария Сидорова"
 }
 ```
 
@@ -75,15 +60,6 @@ DEEPGRAM_API_KEY=ваш_ключ_deepgram
 CLAUDE_API_KEY=ваш_ключ_openrouter
 ```
 
-
-**Как определить, какой Speaker соответствует какому участнику:**
-
-1. Запустите скрипт первый раз с базовыми настройками
-2. Откройте созданный файл транскрипта
-3. Посмотрите, какие фразы говорит каждый "Speaker X"
-4. Обновите `names_config.json` соответствующими именами
-5. Запустите скрипт повторно для получения результата с правильными именами
-
 ## Использование
 
 ### 1. Командная строка (рекомендуется)
@@ -101,7 +77,6 @@ python meeting_processor.py file.ogg \
     --timeout 300 \
     --chunks 5 \
     --config my_config.json \
-    --names my_names.json \
     --keep-audio
 ```
 
@@ -135,7 +110,6 @@ python meeting_processor.py
 | `-o, --output` | Выходная директория | `--output results` |
 | `-t, --timeout` | Таймаут Deepgram (сек) | `--timeout 600` |
 | `-c, --config` | Файл конфигурации | `--config my.json` |
-| `-n, --names` | Файл замен имен | `--names names.json` |
 | `--chunks` | Размер частей (мин) | `--chunks 5` |
 | `--keep-audio` | Сохранить аудио | `--keep-audio` |
 | `--claude-model` | Модель Claude | `--claude-model claude-3-opus-20240229` |
@@ -166,7 +140,7 @@ python meeting_processor.py file.mp3 --claude-model claude-3-opus-20240229
 
 Скрипт создаст в выходной папке:
 
-- `meeting_transcript.txt` - полный транскрипт встречи с замененными именами
+- `meeting_transcript.txt` - полный транскрипт встречи
 - `meeting_summary.md` - **структурированный протокол встречи в формате Markdown**, включающий:
   - Краткое резюме встречи
   - Основные обсуждаемые вопросы
@@ -182,7 +156,6 @@ python meeting_processor.py file.mp3 --claude-model claude-3-opus-20240229
 ```
 ├── meeting_processor.py     # Основной скрипт
 ├── config.json             # Основные настройки
-├── names_config.json       # Конфигурация имен участников
 ├── requirements.txt        # Зависимости Python
 ├── README.md              # Эта инструкция
 └── meeting_output/        # Папка с результатами (создается автоматически)
@@ -214,7 +187,6 @@ python meeting_processor.py file.mp3 --claude-model claude-3-opus-20240229
 
 1. **Ошибка при извлечении аудио**: убедитесь, что установлен moviepy и видеофайл не поврежден
 2. **Ошибка транскрипции**: проверьте API ключ Deepgram и наличие интернет-соединения
-3. **Некорректные имена участников**: обновите names_config.json после первого запуска
 
 ## Примечания
 

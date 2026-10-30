@@ -23,7 +23,8 @@ class TestRunner:
             'unit': [
                 'tests/test_database_models.py',
                 'tests/test_confluence_client.py',
-                'tests/test_confluence_encryption.py'
+                'tests/test_confluence_encryption.py',
+                'tests/test_protocol_generator.py'
             ],
             'integration': [
                 'tests/test_database_integration.py',

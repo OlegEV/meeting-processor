@@ -28,7 +28,7 @@ except ImportError:
 
 # Веб-фреймворк
 try:
-    from flask import Flask, request, render_template_string, jsonify, send_file, redirect, url_for, flash, session
+    from flask import Flask, request, render_template_string, jsonify, send_file, redirect, url_for, flash, session, abort
     from werkzeug.utils import secure_filename as werkzeug_secure_filename
     from werkzeug.exceptions import RequestEntityTooLarge
 except ImportError:
@@ -418,6 +418,54 @@ class WorkingMeetingWebApp:
             if model:
                 return self.resolve_model(model)
         return self.get_default_model()
+
+    @staticmethod
+    def parse_participants(raw_participants) -> list:
+        """Проверяет и нормализует список участников из multipart-поля participants"""
+        if raw_participants is None or raw_participants == '':
+            return []
+
+        try:
+            data = json.loads(raw_participants) if isinstance(raw_participants, str) else raw_participants
+        except (ValueError, TypeError) as e:
+            raise ValueError('Поле participants должно содержать JSON-список участников') from e
+
+        if not isinstance(data, list):
+            raise ValueError('Поле participants должно содержать JSON-список участников')
+
+        participants = []
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                raise ValueError(f'Участник participants[{index}] должен быть объектом')
+
+            full_name = item.get('full_name')
+            if not isinstance(full_name, str) or not full_name.strip():
+                raise ValueError(f'Для participants[{index}] требуется непустое поле full_name')
+
+            participant = {'full_name': full_name.strip()}
+            for field in ('company', 'position'):
+                value = item.get(field, '')
+                if value is None:
+                    value = ''
+                if not isinstance(value, str):
+                    raise ValueError(f'Поле {field} участника participants[{index}] должно быть строкой')
+                participant[field] = value.strip()
+            participants.append(participant)
+
+        return participants
+
+    def get_job_participants(self, job: Dict[str, Any]) -> list:
+        """Возвращает сохранённый в metadata задачи список участников"""
+        metadata = job.get('metadata') if job else None
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata) if metadata else {}
+            except (ValueError, TypeError):
+                metadata = {}
+        if isinstance(metadata, dict):
+            participants = metadata.get('participants', [])
+            return participants if isinstance(participants, list) else []
+        return []
 
     # ---- Чат с LLM по транскрипту -------------------------------------------------
 
@@ -1070,36 +1118,40 @@ class WorkingMeetingWebApp:
                 file = request.files['file']
                 template_type = request.form.get('template', 'standard')
                 selected_model = self.resolve_model(request.form.get('model'))
+                try:
+                    participants = self.parse_participants(request.form.get('participants'))
+                except ValueError as e:
+                    return jsonify({'error': str(e)}), 400
 
                 logger.info(f"📤 Получен файл для загрузки: '{file.filename}' (пользователь: {user_id}, модель: {selected_model})")
-                
+
                 if file.filename == '':
                     flash('Файл не выбран', 'error')
                     return redirect(url_for('index'))
-                
+
                 if not self.allowed_file(file.filename):
                     flash(f'Неподдерживаемый формат файла. Разрешены: {self.formats_display}', 'error')
                     return redirect(url_for('index'))
-                
+
                 # Создаем уникальный ID для задачи
                 job_id = str(uuid.uuid4())
-                
+
                 # Сохраняем файл в пользовательскую директорию
                 original_filename = file.filename
                 filename = secure_filename_unicode(file.filename)
                 user_upload_dir = self.upload_folder / user_id
                 user_upload_dir.mkdir(exist_ok=True)
                 file_path = user_upload_dir / f"{job_id}_{filename}"
-                
+
                 logger.info(f"📝 Обработка имени файла:")
                 logger.info(f"   Оригинальное имя: '{original_filename}'")
                 logger.info(f"   Безопасное имя: '{filename}'")
                 logger.info(f"   Полный путь: '{file_path}'")
-                
+
                 file.save(str(file_path))
-                
+
                 logger.info(f"📁 Файл загружен: {filename} (ID: {job_id}, пользователь: {user_id}, шаблон: {template_type})")
-                
+
                 # Создаем задачу в базе данных
                 job_data = {
                     'job_id': job_id,
@@ -1110,7 +1162,10 @@ class WorkingMeetingWebApp:
                     'progress': 0,
                     'message': 'Файл загружен, ожидает обработки',
                     'file_path': str(file_path),
-                    'metadata': {'model': selected_model}
+                    'metadata': {
+                        'model': selected_model,
+                        'participants': participants
+                    }
                 }
                 
                 if not self.create_job_in_db(job_data):
@@ -1178,65 +1233,55 @@ class WorkingMeetingWebApp:
             })
         
         @self.app.route('/download/<job_id>/<file_type>')
-        @require_auth()
         def download_file(job_id: str, file_type: str):
-            """Скачивание результирующих файлов"""
-            job = self.get_job_status(job_id)
+            """Публичное скачивание протокола или транскрипции по GUID задачи"""
+            job = self.db_manager.get_job_by_id(job_id)
             if not job:
-                flash('Задача не найдена или у вас нет доступа к ней', 'error')
-                return redirect(url_for('index'))
-            
+                abort(404)
+
+            if file_type == 'transcript':
+                file_path = job.get('transcript_file')
+                download_name = f"{Path(job['filename']).stem}_transcript.txt"
+            elif file_type == 'summary':
+                file_path = job.get('summary_file')
+                download_name = f"{Path(job['filename']).stem}_summary.md"
+            else:
+                abort(404)
+
+            if not file_path or not os.path.exists(file_path):
+                abort(404)
+
             try:
-                if file_type == 'transcript':
-                    file_path = job.get('transcript_file')
-                    download_name = f"{Path(job['filename']).stem}_transcript.txt"
-                elif file_type == 'summary':
-                    file_path = job.get('summary_file')
-                    download_name = f"{Path(job['filename']).stem}_summary.md"
-                else:
-                    flash('Неизвестный тип файла', 'error')
-                    return redirect(url_for('status', job_id=job_id))
-                
-                if not file_path or not os.path.exists(file_path):
-                    flash('Файл не найден', 'error')
-                    return redirect(url_for('status', job_id=job_id))
-                
                 return send_file(file_path, as_attachment=True, download_name=download_name)
-                
             except Exception as e:
                 logger.error(f"❌ Ошибка скачивания файла: {e}")
-                flash(f'Ошибка скачивания файла: {str(e)}', 'error')
-                return redirect(url_for('status', job_id=job_id))
-        
+                abort(500)
+
         @self.app.route('/view/<job_id>/<file_type>')
-        @require_auth()
         def view_file(job_id: str, file_type: str):
-            """Просмотр файлов в веб-интерфейсе"""
-            job = self.get_job_status(job_id)
+            """Публичный просмотр протокола или транскрипции по GUID задачи"""
+            job = self.db_manager.get_job_by_id(job_id)
             if not job:
-                flash('Задача не найдена или у вас нет доступа к ней', 'error')
-                return redirect(url_for('index'))
-            
+                abort(404)
+
+            if file_type == 'transcript':
+                file_path = job.get('transcript_file')
+                file_title = "Транскрипт встречи"
+                is_markdown = False
+            elif file_type == 'summary':
+                file_path = job.get('summary_file')
+                file_title = "Протокол встречи"
+                is_markdown = True
+            else:
+                abort(404)
+
+            if not file_path or not os.path.exists(file_path):
+                abort(404)
+
             try:
-                if file_type == 'transcript':
-                    file_path = job.get('transcript_file')
-                    file_title = "Транскрипт встречи"
-                    is_markdown = False
-                elif file_type == 'summary':
-                    file_path = job.get('summary_file')
-                    file_title = "Протокол встречи"
-                    is_markdown = True
-                else:
-                    flash('Неизвестный тип файла', 'error')
-                    return redirect(url_for('status', job_id=job_id))
-                
-                if not file_path or not os.path.exists(file_path):
-                    flash('Файл не найден', 'error')
-                    return redirect(url_for('status', job_id=job_id))
-                
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
-                
+
                 return render_template_string(
                     self.templates.get_view_template(),
                     content=content,
@@ -1246,11 +1291,9 @@ class WorkingMeetingWebApp:
                     file_type=file_type,
                     is_markdown=is_markdown
                 )
-                
             except Exception as e:
                 logger.error(f"❌ Ошибка просмотра файла: {e}")
-                flash(f'Ошибка просмотра файла: {str(e)}', 'error')
-                return redirect(url_for('status', job_id=job_id))
+                abort(500)
         
         @self.app.route('/chat/<job_id>')
         @require_auth()
@@ -1388,7 +1431,10 @@ class WorkingMeetingWebApp:
                     'progress': 0,
                     'message': f'Генерация протокола в шаблоне "{new_template}"...',
                     'transcript_file': transcript_file,
-                    'metadata': {'model': selected_model}
+                    'metadata': {
+                        'model': selected_model,
+                        'participants': self.get_job_participants(job)
+                    }
                 }
                 
                 if not self.create_job_in_db(protocol_job_data):
@@ -2257,7 +2303,8 @@ class WorkingMeetingWebApp:
             protocol_success = processor.generate_protocol_from_transcript(
                 transcript_file_path=str(transcript_file),
                 output_dir=str(output_dir),
-                template_type=job['template']
+                template_type=job['template'],
+                participants=self.get_job_participants(job)
             )
 
             if not protocol_success:
@@ -2377,7 +2424,6 @@ class WorkingMeetingWebApp:
                 claude_model=job_model,
                 template_type=template_type,
                 templates_config_file=self.config.get("paths", {}).get("templates_config", "templates_config.json"),
-                team_config_file=self.config.get("paths", {}).get("team_config", "team_config.json"),
                 progress_callback=progress_callback
             )
             
@@ -2387,7 +2433,8 @@ class WorkingMeetingWebApp:
             success = processor.generate_protocol_from_transcript(
                 transcript_file_path=transcript_file,
                 output_dir=str(output_dir),
-                template_type=template_type
+                template_type=template_type,
+                participants=self.get_job_participants(job)
             )
             
             logger.info(f"📊 Результат генерации протокола: {'✅ успех' if success else '❌ ошибка'}")

@@ -80,29 +80,15 @@ class FileUtils:
         return months.get(month_index, "неизвестно")
     
     @staticmethod
-    def save_transcript(transcript_path: str, transcript: str, file_datetime_info: Dict, 
-                       template_type: str, team_identification: Dict = None):
+    def save_transcript(transcript_path: str, transcript: str, file_datetime_info: Dict,
+                       template_type: str):
         """Сохраняет транскрипт с заголовком"""
-        # Создаем заголовок транскрипта
         transcript_header = f"""ТРАНСКРИПТ ВСТРЕЧИ
 Дата: {file_datetime_info['date']} ({file_datetime_info['weekday_ru']})
 Время: {file_datetime_info['time']}
 Файл: {Path(transcript_path).stem.replace('_transcript', '')}
 Шаблон: {template_type}"""
-        
-        # Добавляем информацию о команде в заголовок
-        if team_identification and team_identification.get("identified", False):
-            stats = team_identification.get("statistics", {})
-            avg_confidence = FileUtils._calculate_average_confidence(team_identification)
-            transcript_header += f"""
-Идентификация команды: ✅ Включена
-Участников определено: {stats.get('total_identified', 0)}
-Команды: {', '.join(stats.get('teams_present', []))}
-Средняя точность: {avg_confidence:.0%}"""
-        else:
-            transcript_header += f"""
-Идентификация команды: ❌ Отключена или не применялась"""
-        
+
         transcript_with_header = f"{transcript_header}\n\n{'-' * 80}\n\n{transcript}"
 
         with open(transcript_path, "w", encoding="utf-8") as f:
@@ -136,56 +122,6 @@ class FileUtils:
         with open(transcript_path, "r", encoding="utf-8") as f:
             return FileUtils.strip_transcript_header(f.read())
 
-    @staticmethod
-    def save_team_info(team_info_path: str, team_identification: Dict, 
-                      file_datetime_info: Dict, input_file_path: str, template_type: str):
-        """Сохраняет подробную информацию о команде"""
-        team_info_content = f"""ИНФОРМАЦИЯ О КОМАНДЕ
-Дата: {file_datetime_info['date']} ({file_datetime_info['weekday_ru']})
-Время: {file_datetime_info['time']}
-Файл: {Path(input_file_path).name}
-Шаблон: {template_type}
-
-{team_identification.get('participant_summary', '')}
-
-СТАТИСТИКА ИДЕНТИФИКАЦИИ:
-- Всего участников определено: {team_identification['statistics']['total_identified']}
-- Команды на встрече: {', '.join(team_identification['statistics']['teams_present'])}
-- Средняя точность определения: {FileUtils._calculate_average_confidence(team_identification):.0%}
-
-ДЕТАЛИЗАЦИЯ ПО УЧАСТНИКАМ:
-"""
-        
-        # Добавляем детальную информацию о каждом участнике
-        for speaker_id, member_info in team_identification.get('speakers', {}).items():
-            confidence = team_identification.get('confidence_scores', {}).get(speaker_id, 0)
-            team_info_content += f"""
-{speaker_id}:
-  - Имя: {member_info.get('full_name', 'неизвестно')}
-  - Роль: {member_info.get('role', 'неизвестно')}
-  - Команда: {member_info.get('team_name', 'неизвестно')}
-  - Точность определения: {confidence:.0%}
-"""
-        
-        team_info_content += f"""
-ЗАМЕНЫ В ТРАНСКРИПТЕ:
-"""
-        for old_speaker, new_speaker in team_identification.get('replacements', {}).items():
-            team_info_content += f"- {old_speaker} → {new_speaker}\n"
-        
-        with open(team_info_path, "w", encoding="utf-8") as f:
-            f.write(team_info_content)
-        print(f"✅ Информация о команде сохранена: {team_info_path}")
-    
-    @staticmethod
-    def _calculate_average_confidence(team_identification: Dict) -> float:
-        """Вычисляет среднюю уверенность идентификации"""
-        confidence_scores = team_identification.get("confidence_scores", {})
-        if not confidence_scores:
-            return 0.0
-        
-        return sum(confidence_scores.values()) / len(confidence_scores)
-    
     @staticmethod
     def cleanup_temp_files(temp_audio_created: bool, audio_file_path: str, keep_audio_file: bool):
         """Очищает временные файлы"""

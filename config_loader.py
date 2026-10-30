@@ -45,27 +45,6 @@ class ConfigLoader:
             return {}
 
     @staticmethod
-    def load_name_mapping(config_file: str = "names_config.json") -> Dict[str, str]:
-        """Загружает конфигурацию замен имен из файла (устаревший метод)"""
-        try:
-            if os.path.exists(config_file):
-                with open(config_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            else:
-                default_mapping = {
-                    "Speaker 0": "Участник 1",
-                    "Speaker 1": "Участник 2", 
-                    "Speaker 2": "Участник 3"
-                }
-                with open(config_file, "w", encoding="utf-8") as f:
-                    json.dump(default_mapping, f, ensure_ascii=False, indent=2)
-                print(f"📁 Создан файл конфигурации {config_file}")
-                return default_mapping
-        except Exception as e:
-            print(f"⚠️ Ошибка при загрузке конфигурации имен: {e}")
-            return {}
-    
-    @staticmethod
     def validate_api_keys(api_keys: Dict) -> tuple:
         """Проверяет корректность API ключей"""
         deepgram_key = api_keys.get("api_keys", {}).get("deepgram", "")
@@ -84,9 +63,7 @@ class ConfigLoader:
         # Пути к файлам
         settings['input_file'] = getattr(args, 'input_file', None) or config.get("paths", {}).get("input_file", "meeting.mp4")
         settings['output_dir'] = getattr(args, 'output', None) or config.get("paths", {}).get("output_dir", "meeting_output")
-        settings['names_config'] = getattr(args, 'names', None) or config.get("paths", {}).get("names_config", "names_config.json")
         settings['templates_config'] = config.get("paths", {}).get("templates_config", "templates_config.json")
-        settings['team_config'] = getattr(args, 'team_config', None) or config.get("paths", {}).get("team_config", "team_config.json")
         # API keys are now loaded from environment variables only
         settings['api_keys_file'] = None
         

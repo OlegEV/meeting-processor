@@ -303,9 +303,7 @@ class TestAccessControlSecurity(unittest.TestCase):
             '/jobs',
             '/statistics',
             '/status/test_job',
-            '/api/status/test_job',
-            '/download/test_job/transcript',
-            '/view/test_job/summary'
+            '/api/status/test_job'
         ]
         
         for endpoint in protected_endpoints:
@@ -314,6 +312,38 @@ class TestAccessControlSecurity(unittest.TestCase):
                 # Should return 401 or redirect (302)
                 self.assertIn(response.status_code, [401, 302])
     
+    def test_public_direct_result_links(self):
+        """Protocol and transcript links work without authentication"""
+        job_id = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
+        with tempfile.TemporaryDirectory() as temp_dir:
+            transcript_path = os.path.join(temp_dir, 'transcript.txt')
+            summary_path = os.path.join(temp_dir, 'summary.md')
+            with open(transcript_path, 'w', encoding='utf-8') as f:
+                f.write('Public transcript')
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                f.write('# Public protocol')
+
+            self.app.db_manager.create_job({
+                'job_id': job_id,
+                'user_id': self.user1_id,
+                'filename': 'public_meeting.mp3',
+                'template': 'standard',
+                'status': 'completed',
+                'progress': 100,
+                'transcript_file': transcript_path,
+                'summary_file': summary_path
+            })
+
+            for endpoint in (
+                f'/download/{job_id}/transcript',
+                f'/download/{job_id}/summary',
+                f'/view/{job_id}/transcript',
+                f'/view/{job_id}/summary'
+            ):
+                with self.subTest(endpoint=endpoint):
+                    response = self.client.get(endpoint)
+                    self.assertEqual(response.status_code, 200)
+
     def test_invalid_token_rejection(self):
         """Test that invalid tokens are properly rejected"""
         invalid_tokens = [

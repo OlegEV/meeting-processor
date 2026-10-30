@@ -95,7 +95,6 @@ echo Опции:
 echo   -o, --output DIR        Директория для результатов
 echo   -t, --timeout SEC       Таймаут Deepgram в секундах
 echo   -c, --config FILE       Файл конфигурации
-echo   -n, --names FILE        Файл конфигурации имен
 echo   --chunks MIN            Размер частей в минутах
 echo   --keep-audio            Сохранить аудиофайл
 echo   -h, --help              Показать эту справку
