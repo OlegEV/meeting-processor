@@ -70,6 +70,48 @@ class TestProtocolGeneratorParticipants(unittest.TestCase):
         self.assertIn('Руководитель проекта', instructions)
         self.assertIn('Сопоставь обозначения спикеров', instructions)
 
+    def test_participants_are_added_to_all_template_types(self):
+        from meeting_templates import MeetingTemplates
+
+        templates = MeetingTemplates()
+        template_types = templates.get_available_templates()['all'] + ['auto']
+        for template_type in template_types:
+            with self.subTest(template_type=template_type):
+                self.generator.client = DummyClient()
+                result = self.generator.generate_meeting_summary(
+                    'Спикер 0: Рассмотрим план проекта',
+                    template_type=template_type,
+                    templates_system=templates,
+                    participants=self.participants
+                )
+
+                self.assertEqual(result, 'Протокол')
+                if self.generator.client.content is not None:
+                    prompt = self.generator.client.content
+                else:
+                    prompt = '\n'.join(
+                        block.get('text', '')
+                        for message in self.generator.client.messages
+                        for block in message['content']
+                    )
+                self.assertIn('Иван Петров', prompt)
+                self.assertIn('ООО Пример', prompt)
+                self.assertIn('Руководитель проекта', prompt)
+                self.assertIn('Сопоставь обозначения спикеров', prompt)
+                self.assertIn('Если соответствие подтверждается транскриптом', prompt)
+
+    def test_empty_participants_do_not_add_identification_context(self):
+        for participants in (None, []):
+            with self.subTest(participants=participants):
+                self.generator.client = DummyClient()
+                self.generator.generate_meeting_summary(
+                    'Спикер 0: Рассмотрим план проекта',
+                    participants=participants
+                )
+
+                self.assertNotIn('ДАННЫЕ ОБ УЧАСТНИКАХ ВСТРЕЧИ', self.generator.client.content)
+                self.assertNotIn('Сопоставь обозначения спикеров', self.generator.client.content)
+
 
 if __name__ == '__main__':
     unittest.main()
