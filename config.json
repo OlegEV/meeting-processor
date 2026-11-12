@@ -61,7 +61,7 @@
     "keep_audio_file": false,
     "language": "multi",
     "deepgram_model": "nova-3",
-    "claude_model": "anthropic/claude-sonnet-5",
+    "claude_model": "anthropic/claude-sonnet-5.5",
     "deepgram_timeout_seconds": 300,
     "chunk_duration_minutes": 120,
     "max_file_size_mb": 200,
@@ -117,13 +117,12 @@
   },
 
   "available_models": {
-    "anthropic/claude-sonnet-5": "Claude Sonnet 5",
-    "openrouter/anthropic/claude-opus-5": "Claude Opus 5",
-    "openrouter/anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
-    "openrouter/moonshotai/kimi-k2.6": "Kimi K2.6",
-    "openrouter/qwen/qwen3.7-plus": "Qwen 3.7 Plus",
-    "openrouter/qwen/qwen3.7-max": "Qwen 3.7 Max",
-    "openrouter/z-ai/glm-5.2": "GLM 5.2",
+    "anthropic/claude-sonnet-5.5": "Claude Sonnet 5.5",
+    "openrouter/anthropic/claude-opus-5.5": "Claude Opus 5.5",
+    "openrouter/anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
+    "openrouter/moonshotai/kimi-k3.1-pro": "Kimi K3.1 Pro",
+    "openrouter/qwen/qwen3.8-max-0902": "Qwen 3.8 Max",
+    "openrouter/z-ai/glm-5.3": "GLM 5.3",
     "openrouter/deepseek/deepseek-v4-pro": "DeepSeek V4 Pro"
   }  
   
