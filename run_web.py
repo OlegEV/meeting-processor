@@ -1231,7 +1231,20 @@ class WorkingMeetingWebApp:
                 'filename': job['filename'],
                 'template': job['template']
             })
-        
+
+        @self.app.route('/api/models')
+        @require_auth(redirect_on_failure=False)
+        def api_models():
+            """API для получения списка доступных моделей и модели по умолчанию"""
+            available_models = self.get_available_models()
+            return jsonify({
+                'models': [
+                    {'id': model_id, 'name': description}
+                    for model_id, description in available_models.items()
+                ],
+                'default_model': self.get_default_model()
+            })
+
         @self.app.route('/download/<job_id>/<file_type>')
         def download_file(job_id: str, file_type: str):
             """Публичное скачивание протокола или транскрипции по GUID задачи"""
@@ -1410,6 +1423,17 @@ class WorkingMeetingWebApp:
                 request.form.get('model') or self.get_job_model(job)
             )
 
+            # Участники: если поле participants передано — используем исправленный список
+            # (в том числе пустой "[]"), иначе наследуем список исходной задачи
+            raw_participants = request.form.get('participants')
+            if raw_participants is None or not raw_participants.strip():
+                participants = self.get_job_participants(job)
+            else:
+                try:
+                    participants = self.parse_participants(raw_participants)
+                except ValueError as e:
+                    return jsonify({'error': str(e)}), 400
+
             # Проверяем наличие транскрипта
             transcript_file = job.get('transcript_file')
             if not transcript_file or not os.path.exists(transcript_file):
@@ -1419,6 +1443,10 @@ class WorkingMeetingWebApp:
             try:
                 # Создаем новый ID для задачи генерации протокола
                 protocol_job_id = f"{job_id}_protocol_{new_template}"
+                # Повторная генерация в том же шаблоне (например, с исправленным
+                # списком участников) не должна упираться в уже существующий ID
+                if self.db_manager.get_job_by_id(protocol_job_id):
+                    protocol_job_id = f"{protocol_job_id}_{uuid.uuid4().hex[:8]}"
                 user_id = get_current_user_id()
 
                 # Создаем задачу генерации протокола в базе данных
@@ -1433,10 +1461,10 @@ class WorkingMeetingWebApp:
                     'transcript_file': transcript_file,
                     'metadata': {
                         'model': selected_model,
-                        'participants': self.get_job_participants(job)
+                        'participants': participants
                     }
                 }
-                
+
                 if not self.create_job_in_db(protocol_job_data):
                     flash('Ошибка создания задачи генерации протокола', 'error')
                     return redirect(url_for('status', job_id=job_id))

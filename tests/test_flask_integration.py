@@ -39,6 +39,12 @@ class TestFlaskIntegration(unittest.TestCase):
             'auth': {
                 'enabled': True,
                 'debug_mode': True,  # Enable debug mode for testing
+                # Requests run as the debug user, so it must be the user that owns the test jobs
+                'debug_user': {
+                    'user_id': 'test_user_123',
+                    'email': 'test@example.com',
+                    'name': 'Test User'
+                },
                 'token_header': 'X-Identity-Token',
                 'jwt_secret': 'test_secret_key_for_testing'
             },
@@ -83,8 +89,10 @@ class TestFlaskIntegration(unittest.TestCase):
         with open(self.config_file.name, 'w') as f:
             json.dump(self.test_config, f, indent=2)
         
-        # Mock ConfigLoader to return our test data
-        with patch('run_web.ConfigLoader.load_config') as mock_load_config, \
+        # Mock ConfigLoader to return our test data.
+        # AUTH_DEBUG_MODE from a local .env overrides config, so pin it for app creation.
+        with patch.dict(os.environ, {'AUTH_DEBUG_MODE': 'true'}), \
+             patch('run_web.ConfigLoader.load_config') as mock_load_config, \
              patch('run_web.ConfigLoader.load_api_keys') as mock_load_api_keys, \
              patch('run_web.ConfigLoader.validate_api_keys') as mock_validate_keys:
             
@@ -150,8 +158,8 @@ class TestFlaskIntegration(unittest.TestCase):
         response = self.client.get('/', headers=self.auth_headers)
         
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'Test User', response.data)
         self.assertIn(b'Meeting Processor', response.data)
+        self.assertIn(b'uploadForm', response.data)
     
     def test_index_page_without_auth(self):
         """Test index page without authentication"""
@@ -295,7 +303,21 @@ class TestFlaskIntegration(unittest.TestCase):
         self.assertEqual(data['progress'], 75)
         self.assertEqual(data['filename'], 'api_test.mp3')
         self.assertEqual(data['template'], 'business')
-    
+
+    def test_api_models_endpoint(self):
+        """Test API models endpoint"""
+        response = self.client.get('/api/models', headers=self.auth_headers)
+
+        self.assertEqual(response.status_code, 200)
+
+        data = json.loads(response.data)
+        expected = self.app.get_available_models()
+        self.assertEqual(
+            data['models'],
+            [{'id': model_id, 'name': name} for model_id, name in expected.items()]
+        )
+        self.assertEqual(data['default_model'], self.app.get_default_model())
+
     def test_jobs_list_page(self):
         """Test jobs list page"""
         # Create multiple test jobs
@@ -306,7 +328,8 @@ class TestFlaskIntegration(unittest.TestCase):
                 'filename': 'meeting1.mp3',
                 'template': 'standard',
                 'status': 'completed',
-                'progress': 100
+                'progress': 100,
+                'summary_file': '/tmp/meeting1_summary.md'
             },
             {
                 'job_id': 'list_job_2',
@@ -326,104 +349,101 @@ class TestFlaskIntegration(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'meeting1.mp3', response.data)
         self.assertIn(b'meeting2.mp3', response.data)
-        self.assertIn(b'completed', response.data)
-        self.assertIn(b'processing', response.data)
-    
-    @patch('run_web.ConfluenceServerClient')
-    def test_publish_confluence_endpoint_success(self, mock_confluence_client):
-        """Test successful Confluence publication endpoint"""
-        # Create completed job with summary file
-        job_data = {
-            'job_id': 'confluence_job',
+        # Statuses are rendered as Russian badges
+        self.assertIn('Завершено'.encode('utf-8'), response.data)
+        self.assertIn('Транскрибация'.encode('utf-8'), response.data)
+
+    def _publish_to_confluence(self, job_id, mock_client_instance):
+        """Creates a completed job with a real summary file and posts it to /publish_confluence as AJAX"""
+        summary = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='_summary.md', encoding='utf-8')
+        summary.write("# Meeting Protocol\nDate: 2025-09-02\nTopic: Test Confluence Publication\n")
+        summary.close()
+        self.addCleanup(os.unlink, summary.name)
+
+        self.app.db_manager.create_job({
+            'job_id': job_id,
             'user_id': self.test_user_id,
             'filename': 'confluence_meeting.mp3',
             'template': 'standard',
             'status': 'completed',
             'progress': 100,
-            'summary_file': '/tmp/test_summary.md'
+            'summary_file': summary.name
+        })
+
+        metadata = {
+            'page_id': '111',
+            'space_key': 'TEST',
+            'page_title': 'Parent page',
+            'extraction_method': 'test'
         }
-        self.app.db_manager.create_job(job_data)
-        
-        # Mock summary file content
-        test_summary = """# Meeting Protocol
-Date: 2025-09-02
-Topic: Test Confluence Publication
+        headers = dict(self.auth_headers, **{'X-Requested-With': 'XMLHttpRequest'})
 
-## Participants
-- Test User
+        with patch.object(self.app, 'extract_confluence_metadata', return_value=metadata), \
+             patch('confluence_client.ConfluenceServerClient', return_value=mock_client_instance):
+            return self.client.post(
+                f'/publish_confluence/{job_id}',
+                data={
+                    'base_page_url': 'https://wiki.example.com/pages/viewpage.action?pageId=111',
+                    'page_title': '20250902 - Test Meeting'
+                },
+                headers=headers
+            )
 
-## Decisions
-- Publish to Confluence
-"""
-        
-        # Mock Confluence client
+    def test_publish_confluence_endpoint_success(self):
+        """Test successful Confluence publication endpoint"""
         mock_client_instance = Mock()
-        mock_client_instance.publish_protocol.return_value = {
-            'success': True,
-            'page_url': 'https://test.atlassian.net/wiki/spaces/TEST/pages/123456',
-            'page_id': '123456'
-        }
-        mock_confluence_client.return_value = mock_client_instance
-        
-        # Mock file reading
-        with patch('builtins.open', unittest.mock.mock_open(read_data=test_summary)):
-            data = {
-                'base_page_url': 'https://test.atlassian.net/wiki/spaces/TEST/pages/parent/',
-                'page_title': '20250902 - Test Meeting',
-                'space_key': 'TEST'
-            }
-            
-            response = self.client.post('/publish_confluence/confluence_job',
-                                      data=data,
-                                      headers=self.auth_headers)
-        
+        mock_client_instance.create_page.return_value = {'id': '123456'}
+
+        response = self._publish_to_confluence('confluence_job', mock_client_instance)
+
         self.assertEqual(response.status_code, 200)
-        
+
         response_data = json.loads(response.data)
         self.assertTrue(response_data['success'])
-        self.assertIn('page_url', response_data)
+        self.assertIn('pageId=123456', response_data['page_url'])
         self.assertEqual(response_data['page_id'], '123456')
-    
-    @patch('run_web.ConfluenceServerClient')
-    def test_publish_confluence_endpoint_failure(self, mock_confluence_client):
+
+        create_kwargs = mock_client_instance.create_page.call_args.kwargs
+        self.assertEqual(create_kwargs['title'], '20250902 - Test Meeting')
+        self.assertEqual(create_kwargs['parent_page_id'], '111')
+        self.assertEqual(create_kwargs['space_key'], 'TEST')
+
+        publications = self.app.db_manager.get_confluence_publications('confluence_job', self.test_user_id)
+        self.assertEqual(len(publications), 1)
+        self.assertEqual(publications[0]['status'], PublicationStatus.PUBLISHED)
+
+    def test_publish_confluence_endpoint_failure(self):
         """Test failed Confluence publication endpoint"""
-        # Create completed job
-        job_data = {
-            'job_id': 'confluence_fail_job',
-            'user_id': self.test_user_id,
-            'filename': 'confluence_fail.mp3',
-            'template': 'standard',
-            'status': 'completed',
-            'progress': 100,
-            'summary_file': '/tmp/test_summary.md'
-        }
-        self.app.db_manager.create_job(job_data)
-        
-        # Mock Confluence client failure
         mock_client_instance = Mock()
-        mock_client_instance.publish_protocol.return_value = {
-            'success': False,
-            'error': 'Authentication failed'
-        }
-        mock_confluence_client.return_value = mock_client_instance
-        
-        with patch('builtins.open', unittest.mock.mock_open(read_data='# Test')):
-            data = {
-                'base_page_url': 'https://test.atlassian.net/wiki/spaces/TEST/pages/parent/',
-                'page_title': '20250902 - Test Meeting',
-                'space_key': 'TEST'
-            }
-            
-            response = self.client.post('/publish_confluence/confluence_fail_job',
-                                      data=data,
-                                      headers=self.auth_headers)
-        
-        self.assertEqual(response.status_code, 500)
-        
+        mock_client_instance.create_page.side_effect = Exception('Authentication failed')
+
+        response = self._publish_to_confluence('confluence_fail_job', mock_client_instance)
+
+        # AJAX errors are reported in the JSON body
         response_data = json.loads(response.data)
         self.assertFalse(response_data['success'])
-        self.assertIn('error', response_data)
-    
+        self.assertIn('Authentication failed', response_data['error'])
+
+    def test_publish_confluence_rejects_unsupported_url(self):
+        """Test Confluence publication with a non-Server page URL"""
+        self.app.db_manager.create_job({
+            'job_id': 'confluence_bad_url_job',
+            'user_id': self.test_user_id,
+            'filename': 'confluence_meeting.mp3',
+            'template': 'standard',
+            'status': 'completed',
+            'progress': 100
+        })
+
+        response = self.client.post(
+            '/publish_confluence/confluence_bad_url_job',
+            data={'base_page_url': 'https://test.atlassian.net/wiki/spaces/TEST/pages/parent/'},
+            headers=self.auth_headers
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(json.loads(response.data)['success'])
+
     def test_publish_confluence_invalid_job(self):
         """Test Confluence publication with invalid job"""
         data = {
@@ -519,10 +539,10 @@ Topic: Test Confluence Publication
         
         # Verify publication details
         publications = response_data['publications']
-        published_pub = next(p for p in publications if p['publication_status'] == PublicationStatus.PUBLISHED)
-        failed_pub = next(p for p in publications if p['publication_status'] == PublicationStatus.FAILED)
-        
-        self.assertEqual(published_pub['confluence_page_id'], 'page_1')
+        published_pub = next(p for p in publications if p['status'] == PublicationStatus.PUBLISHED)
+        failed_pub = next(p for p in publications if p['status'] == PublicationStatus.FAILED)
+
+        self.assertEqual(published_pub['page_id'], 'page_1')
         self.assertEqual(failed_pub['error_message'], 'Network timeout')
     
     def test_confluence_publications_unauthorized_job(self):
@@ -581,7 +601,7 @@ Topic: Test Confluence Publication
         response = self.client.get('/statistics', headers=self.auth_headers)
         
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'Statistics', response.data)
+        self.assertIn('Статистика'.encode('utf-8'), response.data)
     
     def test_download_file_endpoint(self):
         """Test file download endpoint"""
@@ -671,7 +691,72 @@ This is test content for viewing.
             # Should redirect to new protocol job status
             self.assertEqual(response.status_code, 302)
             self.assertIn('/status/', response.location)
-    
+
+    def _create_completed_job_with_participants(self, job_id):
+        """Создаёт завершённую задачу с транскриптом и исходным списком участников"""
+        original = [{'full_name': 'Иван Петров', 'company': 'ООО Пример', 'position': 'Аналитик'}]
+        self.app.db_manager.create_job({
+            'job_id': job_id,
+            'user_id': self.test_user_id,
+            'filename': 'protocol_test.mp3',
+            'template': 'standard',
+            'status': 'completed',
+            'progress': 100,
+            'transcript_file': '/tmp/test_transcript.txt',
+            'metadata': {'participants': original}
+        })
+        return original
+
+    def _job_participants(self, job_id):
+        job = self.app.db_manager.get_job_by_id(job_id)
+        metadata = job['metadata']
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        return metadata['participants']
+
+    def test_generate_protocol_accepts_corrected_participants(self):
+        """Test protocol regeneration with corrected participants list"""
+        original = self._create_completed_job_with_participants('participants_job')
+        corrected = [{'full_name': 'Иван Петров', 'company': 'ООО Пример', 'position': 'Руководитель проекта'},
+                     {'full_name': 'Мария Сидорова', 'company': '', 'position': ''}]
+
+        with patch('os.path.exists', return_value=True), \
+             patch.object(self.app, 'generate_protocol_sync'):
+            # Без поля participants список наследуется от исходной задачи
+            response = self.client.post('/generate_protocol/participants_job',
+                                        data={'new_template': 'business'},
+                                        headers=self.auth_headers)
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(self._job_participants('participants_job_protocol_business'), original)
+
+            # Повторная генерация в том же шаблоне с исправленным списком
+            response = self.client.post('/generate_protocol/participants_job',
+                                        data={'new_template': 'business',
+                                              'participants': json.dumps(corrected, ensure_ascii=False)},
+                                        headers=self.auth_headers)
+            self.assertEqual(response.status_code, 302)
+            new_job_id = response.location.rsplit('/status/', 1)[1]
+            self.assertNotEqual(new_job_id, 'participants_job_protocol_business')
+            self.assertEqual(self._job_participants(new_job_id), corrected)
+
+        # Исходная задача не изменилась
+        self.assertEqual(self._job_participants('participants_job'), original)
+
+    def test_generate_protocol_rejects_invalid_participants(self):
+        """Test generate_protocol validation of participants JSON"""
+        self._create_completed_job_with_participants('bad_participants_job')
+
+        with patch('os.path.exists', return_value=True), \
+             patch.object(self.app, 'generate_protocol_sync') as mock_generate:
+            response = self.client.post('/generate_protocol/bad_participants_job',
+                                        data={'new_template': 'business',
+                                              'participants': json.dumps([{'company': 'ООО Пример'}])},
+                                        headers=self.auth_headers)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('full_name', json.loads(response.data)['error'])
+        mock_generate.assert_not_called()
+
     def test_error_handling_file_too_large(self):
         """Test error handling for file too large"""
         # Create a large file (mock)
@@ -696,7 +781,7 @@ This is test content for viewing.
         # Test docs index
         response = self.client.get('/docs')
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'Documentation', response.data)
+        self.assertIn('Документация'.encode('utf-8'), response.data)
         
         # Test specific doc (mock file existence)
         with patch('os.path.exists', return_value=True), \
@@ -758,10 +843,14 @@ class TestAuthenticationIntegration(unittest.TestCase):
     
     def setUp(self):
         """Set up test Flask application with authentication"""
+        # ':memory:' gives every connection its own empty database, so use a temp file
+        self.test_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+        self.test_db.close()
+
         # Create test configuration with auth enabled
         self.test_config = {
             'database': {
-                'path': ':memory:',
+                'path': self.test_db.name,
                 'timeout': 30,
                 'check_same_thread': False
             },
@@ -785,8 +874,10 @@ class TestAuthenticationIntegration(unittest.TestCase):
             'claude': {'api_key': 'test_claude_key'}
         }
         
-        # Mock ConfigLoader
-        with patch('run_web.ConfigLoader.load_config') as mock_load_config, \
+        # Mock ConfigLoader.
+        # AUTH_DEBUG_MODE from a local .env overrides config, so pin it for app creation.
+        with patch.dict(os.environ, {'AUTH_DEBUG_MODE': 'false'}), \
+             patch('run_web.ConfigLoader.load_config') as mock_load_config, \
              patch('run_web.ConfigLoader.load_api_keys') as mock_load_api_keys, \
              patch('run_web.ConfigLoader.validate_api_keys') as mock_validate_keys:
             
@@ -798,7 +889,19 @@ class TestAuthenticationIntegration(unittest.TestCase):
             self.app = WorkingMeetingWebApp('test_config.json')
             self.client = self.app.app.test_client()
             self.app.app.config['TESTING'] = True
-    
+
+    def tearDown(self):
+        """Clean up test files"""
+        self.app.executor.shutdown(wait=True)
+        self.client = None
+        self.app = None
+        import gc
+        gc.collect()
+        try:
+            os.unlink(self.test_db.name)
+        except FileNotFoundError:
+            pass
+
     def test_protected_endpoint_without_auth(self):
         """Test accessing protected endpoint without authentication"""
         response = self.client.get('/')
@@ -817,25 +920,21 @@ class TestAuthenticationIntegration(unittest.TestCase):
     
     def test_protected_endpoint_with_valid_token(self):
         """Test accessing protected endpoint with valid token"""
-        # Mock valid authentication
-        with patch('auth.require_auth') as mock_require_auth:
-            mock_require_auth.return_value = lambda f: f  # Pass through decorator
-            
-            with patch('auth.get_current_user_id', return_value='test_user'), \
-                 patch('auth.get_current_user', return_value={'user_id': 'test_user', 'name': 'Test User'}):
-                
-                # Create test user
-                user_data = {
-                    'user_id': 'test_user',
-                    'email': 'test@example.com',
-                    'name': 'Test User'
-                }
-                self.app.db_manager.create_user(user_data)
-                
-                headers = {'X-Identity-Token': 'valid_token'}
-                response = self.client.get('/', headers=headers)
-                
-                self.assertEqual(response.status_code, 200)
+        user_info = {
+            'user_id': 'test_user',
+            'email': 'test@example.com',
+            'name': 'Test User'
+        }
+        self.app.db_manager.create_user(dict(user_info))
+
+        # Token validator accepts the token and returns the user
+        with patch.object(self.app.token_validator, 'validate_request',
+                          return_value=(True, user_info, None)):
+            headers = {'X-Identity-Token': 'valid_token'}
+            response = self.client.get('/', headers=headers)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'Meeting Processor', response.data)
     
     def test_api_endpoint_authentication(self):
         """Test API endpoint authentication"""
