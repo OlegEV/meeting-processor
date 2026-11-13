@@ -83,6 +83,7 @@ When writing Flask tests: `AUTH_DEBUG_MODE` from a local `.env` overrides `auth.
 ## Things to watch for
 
 - **Single-file giants**: `run_web.py` (~3000 lines) and `web_templates.py` (~86 KB of HTML in Python strings) are intentionally monolithic. Prefer surgical edits over refactors unless asked.
+- **No external resources in pages**: Bootstrap, Font Awesome (with fonts), marked and Chart.js are vendored under `static/vendor/` (versions in `static/vendor/README.md`) because CDNs are blocked on the target network. Never add `<script>`/`<link>` tags pointing to a CDN — put the file in `static/vendor/` instead; `test_pages_do_not_load_external_resources` enforces this.
 - **Russian strings everywhere**: log messages, prompts, user-facing UI text, and exception messages are mostly Russian. New strings in user-visible paths should match.
 - **Optional imports are load-bearing**: `MeetingTemplates` and Confluence modules are wrapped in `try/except ImportError` and the code degrades gracefully when they're missing. Don't convert these to hard imports.
 - **Two Claude model id formats coexist**: legacy Anthropic ids (e.g. `claude-sonnet-4-20250514`) and OpenRouter ids (e.g. `anthropic/claude-sonnet-4.5`). `OpenRouterClient.get_openrouter_model_name` translates between them — route new code through the OpenRouter form.

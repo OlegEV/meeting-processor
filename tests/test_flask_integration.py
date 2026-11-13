@@ -180,6 +180,44 @@ class TestFlaskIntegration(unittest.TestCase):
             response = self.client.get('/', headers=self.auth_headers)
             self.assertIn(b'>v9.9-test</div>', response.data)
 
+    def test_pages_do_not_load_external_resources(self):
+        """Test that styles, scripts and fonts are served by the application itself"""
+        import re
+        from web_templates import WebTemplates
+
+        templates = WebTemplates()
+        getters = [name for name in dir(templates) if name.startswith('get_') and name.endswith('_template')]
+        self.assertTrue(getters)
+
+        assets = set()
+        for name in getters:
+            html = getattr(templates, name)()
+            for tag in re.findall(r'<(?:script|link|img)\b[^>]*>', html):
+                with self.subTest(template=name, tag=tag):
+                    self.assertNotRegex(tag, r'(?:src|href)\s*=\s*["\'](?:https?:)?//')
+            assets.update(re.findall(r'(?:src|href)="(/static/[^"]+)"', html))
+
+        # Every referenced static file exists and is served
+        self.assertIn('/static/vendor/bootstrap/css/bootstrap.min.css', assets)
+        for asset in sorted(assets):
+            with self.subTest(asset=asset):
+                response = self.client.get(asset)
+                self.assertEqual(response.status_code, 200)
+                response.close()
+
+        # Fonts referenced by the icon stylesheet are bundled too
+        css_path = os.path.join(self.app.app.static_folder, 'vendor', 'fontawesome', 'css', 'all.min.css')
+        with open(css_path, encoding='utf-8') as f:
+            css = f.read()
+        self.assertNotRegex(css, r'url\(\s*["\']?(?:https?:)?//')
+        fonts = set(re.findall(r'url\(\.\./webfonts/([^)]+)\)', css))
+        self.assertTrue(fonts)
+        for font in sorted(fonts):
+            with self.subTest(font=font):
+                response = self.client.get(f'/static/vendor/fontawesome/webfonts/{font}')
+                self.assertEqual(response.status_code, 200)
+                response.close()
+
     def test_index_page_without_auth(self):
         """Test index page without authentication"""
         response = self.client.get('/')

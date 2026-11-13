@@ -33,6 +33,9 @@ COPY gunicorn.conf.py ./
 COPY auth/ ./auth/
 COPY database/ ./database/
 
+# Копируем статические файлы веб-интерфейса (стили, скрипты и шрифты встроены в приложение)
+COPY static/ ./static/
+
 # Копируем файлы документации
 COPY meeting_recording_guidelines.md ./
 COPY quick_meeting_checklist.md ./
