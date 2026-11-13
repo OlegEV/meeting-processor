@@ -161,6 +161,25 @@ class TestFlaskIntegration(unittest.TestCase):
         self.assertIn(b'Meeting Processor', response.data)
         self.assertIn(b'uploadForm', response.data)
     
+    def test_app_version_is_shown(self):
+        """Test that the application version is rendered on pages and in /health"""
+        from version import __version__
+
+        with patch.dict(os.environ):
+            os.environ.pop('APP_VERSION', None)
+            for endpoint in ('/', '/jobs', '/statistics', '/docs'):
+                with self.subTest(endpoint=endpoint):
+                    response = self.client.get(endpoint, headers=self.auth_headers)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(f'>v{__version__}</div>'.encode('utf-8'), response.data)
+
+            self.assertEqual(json.loads(self.client.get('/health').data)['version'], __version__)
+
+        # APP_VERSION overrides the built-in value
+        with patch.dict(os.environ, {'APP_VERSION': '9.9-test'}):
+            response = self.client.get('/', headers=self.auth_headers)
+            self.assertIn(b'>v9.9-test</div>', response.data)
+
     def test_index_page_without_auth(self):
         """Test index page without authentication"""
         response = self.client.get('/')

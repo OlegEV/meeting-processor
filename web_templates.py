@@ -197,6 +197,7 @@ class WebTemplates:
             xhr.send(formData);
         });
     </script>
+    <div style="position: fixed; left: 8px; bottom: 6px; z-index: 1030; font-size: 0.75rem; color: #6c757d; pointer-events: none;">v{{ app_version }}</div>
 </body>
 </html>
         '''
@@ -709,6 +710,7 @@ class WebTemplates:
         });
         {% endif %}
     </script>
+    <div style="position: fixed; left: 8px; bottom: 6px; z-index: 1030; font-size: 0.75rem; color: #6c757d; pointer-events: none;">v{{ app_version }}</div>
 </body>
 </html>
         '''
@@ -808,6 +810,7 @@ class WebTemplates:
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <div style="position: fixed; left: 8px; bottom: 6px; z-index: 1030; font-size: 0.75rem; color: #6c757d; pointer-events: none;">v{{ app_version }}</div>
 </body>
 </html>
         '''
@@ -1076,6 +1079,7 @@ class WebTemplates:
 
         input.focus();
     </script>
+    <div style="position: fixed; left: 8px; bottom: 6px; z-index: 1030; font-size: 0.75rem; color: #6c757d; pointer-events: none;">v{{ app_version }}</div>
 </body>
 </html>
         '''
@@ -1091,6 +1095,28 @@ class WebTemplates:
     <title>Все задачи</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Таблица задач не прокручивается по горизонтали: содержимое ячеек переносится */
+        .jobs-table { width: 100%; }
+        .jobs-table td, .jobs-table th { vertical-align: middle; }
+        .jobs-table .cell-wrap { overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+        .jobs-table .badge { white-space: normal; text-align: left; line-height: 1.3; }
+        .jobs-table .progress { height: 20px; width: 100px; max-width: 100%; }
+        .jobs-table .col-file { min-width: 14rem; }
+        .jobs-table .col-template { min-width: 7.5rem; }
+
+        /* На узких экранах строка таблицы превращается в карточку "подпись: значение" */
+        @media (max-width: 991.98px) {
+            .jobs-table .col-file, .jobs-table .col-template { min-width: 0; }
+            .jobs-table thead { display: none; }
+            .jobs-table > tbody { border-top: 0; }
+            .jobs-table, .jobs-table tbody, .jobs-table tr, .jobs-table td { display: block; width: 100%; }
+            .jobs-table tr { border: 1px solid #dee2e6; border-radius: .375rem; margin-bottom: .75rem; padding: .25rem .5rem; }
+            .jobs-table td { display: flex; gap: .75rem; align-items: center; border: 0; padding: .3rem 0; }
+            .jobs-table td::before { content: attr(data-label); flex: 0 0 7.5rem; font-weight: 600; color: #6c757d; }
+            .jobs-table td > * { min-width: 0; }
+        }
+    </style>
 </head>
 <body class="bg-light">
     <nav class="navbar navbar-dark bg-primary">
@@ -1112,8 +1138,8 @@ class WebTemplates:
             </div>
             <div class="card-body">
                 {% if jobs %}
-                    <div class="table-responsive">
-                        <table class="table table-hover">
+                    <div>
+                        <table class="table table-hover jobs-table">
                             <thead class="table-light">
                                 <tr>
                                     <th>Файл</th>
@@ -1121,21 +1147,21 @@ class WebTemplates:
                                     <th>Шаблон</th>
                                     <th>Статус</th>
                                     <th>Прогресс</th>
-                                    <th class="text-nowrap">Дата создания</th>
+                                    <th>Дата создания</th>
                                     <th>Действия</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for job in jobs %}
                                     <tr>
-                                        <td><i class="fas fa-file me-1"></i>{{ job.filename }}</td>
-                                        {% if is_admin %}<td><small class="text-muted">{{ job.user_display }}</small></td>{% endif %}
-                                        <td><span class="badge bg-secondary">{{ 'без протокола' if job.template == 'none' else job.template }}</span></td>
-                                        <td>
+                                        <td data-label="Файл" class="col-file"><div class="d-flex"><i class="fas fa-file me-2 mt-1"></i><span class="cell-wrap">{{ job.filename }}</span></div></td>
+                                        {% if is_admin %}<td data-label="Пользователь" class="cell-wrap"><small class="text-muted">{{ job.user_display }}</small></td>{% endif %}
+                                        <td data-label="Шаблон" class="col-template cell-wrap"><span class="badge bg-secondary">{{ 'без протокола' if job.template == 'none' else job.template }}</span></td>
+                                        <td data-label="Статус">
                                             {% if job.stage == 'completed' %}
                                                 <span class="badge bg-success"><i class="fas fa-check me-1"></i>Завершено</span>
                                             {% elif job.stage == 'transcribed_only' %}
-                                                <span class="badge bg-success"><i class="fas fa-check me-1"></i>Транскрипция готова (без протокола)</span>
+                                                <span class="badge bg-success"><i class="fas fa-check me-1"></i>Транскрибация готова</span>
                                             {% elif job.stage == 'protocol_error' %}
                                                 <span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle me-1"></i>Транскрипт готов, ошибка протокола</span>
                                             {% elif job.stage == 'transcription_error' %}
@@ -1148,16 +1174,16 @@ class WebTemplates:
                                                 <span class="badge bg-warning"><i class="fas fa-clock me-1"></i>Ожидание</span>
                                             {% endif %}
                                         </td>
-                                        <td>
-                                            <div class="progress" style="height: 20px; width: 100px;">
+                                        <td data-label="Прогресс">
+                                            <div class="progress">
                                                 <div class="progress-bar {% if job.stage in ['completed', 'transcribed_only'] %}bg-success{% elif job.stage == 'protocol_error' %}bg-warning{% elif job.stage == 'transcription_error' %}bg-danger{% else %}bg-primary{% endif %}"
                                                     style="width: {{ job.progress }}%">
                                                     <small>{{ job.progress }}%</small>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td class="text-nowrap">{{ job.created_at }}</td>
-                                        <td>
+                                        <td data-label="Дата создания"><span>{{ job.created_at }}</span></td>
+                                        <td data-label="Действия">
                                             <a href="/status/{{ job.id }}" class="btn btn-sm btn-outline-primary">
                                                 <i class="fas fa-eye me-1"></i>Подробнее
                                             </a>
@@ -1182,6 +1208,7 @@ class WebTemplates:
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <div style="position: fixed; left: 8px; bottom: 6px; z-index: 1030; font-size: 0.75rem; color: #6c757d; pointer-events: none;">v{{ app_version }}</div>
 </body>
 </html>
         '''
@@ -1640,6 +1667,7 @@ class WebTemplates:
         });
     </script>
     {% endif %}
+    <div style="position: fixed; left: 8px; bottom: 6px; z-index: 1030; font-size: 0.75rem; color: #6c757d; pointer-events: none;">v{{ app_version }}</div>
 </body>
 </html>
         '''
@@ -1774,6 +1802,7 @@ class WebTemplates:
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <div style="position: fixed; left: 8px; bottom: 6px; z-index: 1030; font-size: 0.75rem; color: #6c757d; pointer-events: none;">v{{ app_version }}</div>
 </body>
 </html>
         '''
@@ -2036,6 +2065,7 @@ class WebTemplates:
             }
         });
     </script>
+    <div style="position: fixed; left: 8px; bottom: 6px; z-index: 1030; font-size: 0.75rem; color: #6c757d; pointer-events: none;">v{{ app_version }}</div>
 </body>
 </html>
         '''

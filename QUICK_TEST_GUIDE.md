@@ -1,140 +1,63 @@
 # Быстрое руководство по запуску тестов
 
-## Успешно работающие тесты
+Для запуска нужен только `pytest` (для отчёта о покрытии — ещё `pytest-cov`). Сеть, Deepgram, Claude и Confluence в тестах не используются.
 
-### 1. Unit тесты (рекомендуется запускать)
+## Запуск
+
 ```bash
-# Тесты моделей базы данных (33 теста)
-python -m pytest tests/test_database_models.py -v
+# Все тесты
+python -m pytest tests -q
 
-# Тесты Confluence клиента (58 тестов, 1 известная проблема)
-python -m pytest tests/test_confluence_client.py -v
+# То же через test runner
+python run_tests.py
 
-# Тесты шифрования (28 тестов) - исправленная версия
-python -m pytest tests/test_confluence_encryption_fixed.py -v
-
-# Все unit тесты вместе
-python -m pytest tests/test_database_models.py tests/test_confluence_client.py tests/test_confluence_encryption_fixed.py -v
-```
-
-### 2. Тесты фикстур
-```bash
-# Тестирование самих фикстур
-python tests/test_fixtures.py
-```
-
-## Тесты с проблемами (требуют исправления)
-
-### 1. Интеграционные тесты
-```bash
-# НЕ ЗАПУСКАТЬ - проблемы с блокировкой файлов на Windows
-# python -m pytest tests/test_database_integration.py -v
-```
-**Проблемы**: 
-- Файлы SQLite остаются заблокированными
-- Отсутствующие методы в DatabaseManager
-- Проблемы с триггерами БД
-
-### 2. Тесты безопасности
-```bash
-# НЕ ЗАПУСКАТЬ - проблемы с импортами
-# python -m pytest tests/test_security.py -v
-```
-**Проблема**: Импорт несуществующего класса `ConfluenceEncryptionError`
-
-### 3. Тесты производительности
-```bash
-# НЕ ЗАПУСКАТЬ - проблемы с конфигурацией
-# python -m pytest tests/test_performance.py -v
-```
-**Проблема**: Неправильная инициализация DatabaseManager
-
-## Рекомендуемая последовательность запуска
-
-### Шаг 1: Базовые unit тесты
-```bash
-python -m pytest tests/test_database_models.py -v
-```
-**Ожидаемый результат**: 33 теста пройдут успешно
-
-### Шаг 2: Тесты Confluence клиента
-```bash
-python -m pytest tests/test_confluence_client.py -v
-```
-**Ожидаемый результат**: 58/59 тестов пройдут (1 известная проблема с markdown)
-
-### Шаг 3: Тесты шифрования
-```bash
-python -m pytest tests/test_confluence_encryption_fixed.py -v
-```
-**Ожидаемый результат**: 28 тестов пройдут успешно
-
-### Шаг 4: Все работающие тесты
-```bash
-python -m pytest tests/test_database_models.py tests/test_confluence_client.py tests/test_confluence_encryption_fixed.py -v
-```
-**Ожидаемый результат**: 119/120 тестов пройдут успешно
-
-## Использование test runner
-
-### Быстрые тесты
-```bash
+# Только unit-тесты
 python run_tests.py quick
+
+# Отдельные категории: unit, integration, security, performance, e2e
+python run_tests.py --categories integration e2e --verbose
+
+# Все тесты с покрытием (нужен pytest-cov)
+python run_tests.py full
 ```
 
-### С покрытием кода
+## Состав тестов
+
+| Категория | Файл | Что проверяет |
+|---|---|---|
+| unit | `tests/test_database_models.py` | модели, схема и валидаторы базы данных |
+| unit | `tests/test_confluence_client.py` | клиент Confluence, конвертация markdown, сервис публикации |
+| unit | `tests/test_confluence_encryption.py` | шифрование и хранение токенов Confluence |
+| unit | `tests/test_protocol_generator.py` | список участников в промпте протокола |
+| unit | `tests/test_admin_role.py` | определение администратора |
+| unit | `tests/test_space_key_auto_extraction.py` | извлечение `space_key` и `page_id` из URL Confluence |
+| integration | `tests/test_database_integration.py` | операции `DatabaseManager`, каскады, миграции |
+| integration | `tests/test_flask_integration.py` | маршруты Flask, аутентификация |
+| security | `tests/test_security.py` | шифрование токенов, изоляция пользователей, SQL-инъекции, XSS, обход путей |
+| performance | `tests/test_performance.py` | время массовых операций с базой |
+| e2e | `tests/test_end_to_end.py` | сквозные сценарии: загрузка → протокол → публикация в Confluence |
+
+`tests/test_fixtures.py` — фабрики тестовых данных, тестов не содержит.
+
+## Как устроена аутентификация в тестах
+
+- `tests/test_flask_integration.py` работает в отладочном режиме: в тестовом конфиге `auth.debug_mode: true`, а `auth.debug_user` совпадает с тестовым пользователем.
+- `tests/test_security.py` и `tests/test_end_to_end.py` работают с выключенным отладочным режимом; нужный пользователь задаётся подменой `token_validator.validate_request`.
+- Переменная `AUTH_DEBUG_MODE` из локального `.env` перекрывает конфиг, поэтому тесты фиксируют её на время создания приложения.
+
+## Отладка
+
 ```bash
-python -m pytest tests/test_database_models.py tests/test_confluence_client.py tests/test_confluence_encryption_fixed.py --cov=. --cov-report=html --cov-report=term
-```
-
-## Анализ результатов
-
-### Успешный запуск должен показать:
-- ✅ **147 тестов собрано**
-- ✅ **119 тестов прошли**
-- ❌ **1 тест не прошел** (известная проблема с markdown)
-- ⏱️ **Время выполнения**: ~7-10 секунд
-
-### Покрытие кода:
-- **Database models**: 95%+
-- **Confluence client**: 90%+
-- **Encryption**: 100%
-- **Общее покрытие**: 85%+
-
-## Известные проблемы
-
-### 1. Markdown преобразование
-**Файл**: `tests/test_confluence_client.py`
-**Тест**: `test_markdown_to_confluence_code_blocks`
-**Проблема**: Ожидается Confluence Storage Format, получается обычный HTML
-
-### 2. Интеграционные тесты
-**Проблема**: Блокировка файлов SQLite на Windows
-**Решение**: Требует улучшения управления ресурсами
-
-### 3. Импорты в тестах безопасности
-**Проблема**: `ConfluenceEncryptionError` не существует
-**Решение**: Использовать `EncryptionDataError`
-
-## Рекомендации
-
-1. **Для разработки**: Запускайте unit тесты после каждого изменения
-2. **Для CI/CD**: Используйте только работающие тесты
-3. **Для отладки**: Используйте `-v -s` флаги для детального вывода
-4. **Для покрытия**: Добавляйте `--cov` флаги
-
-## Команды для отладки
-
-### Запуск одного теста
-```bash
+# Один тест
 python -m pytest tests/test_database_models.py::TestUser::test_user_creation -v -s
-```
 
-### Запуск с остановкой на первой ошибке
-```bash
+# Остановиться на первой ошибке
 python -m pytest tests/test_confluence_client.py -x -v
+
+# Подробный вывод
+python -m pytest tests/test_flask_integration.py -v -s --tb=long
 ```
 
-### Запуск с детальным выводом
-```bash
-python -m pytest tests/test_confluence_encryption_fixed.py -v -s --tb=long
+## Особенности Windows
+
+Соединения `sqlite3` закрываются только при сборке мусора, а Windows не даёт удалить открытый файл базы. Поэтому в `tearDown` тесты обнуляют ссылки на приложение и вызывают `gc.collect()` перед удалением временных файлов.

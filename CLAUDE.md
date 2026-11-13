@@ -76,7 +76,9 @@ Config keys are read with conservative `dict.get(..., default)` calls — when a
 
 ## Tests
 
-Tests live in `tests/` and are grouped into categories (`unit`, `integration`, `security`, `frontend`, `performance`, `e2e`) by `run_tests.py`. The frontend tests use Selenium and need Chrome + `webdriver-manager`; performance tests need `psutil`; both are optional. Most existing tests cover Confluence integration, the database layer, and Flask routes — there is little coverage of the audio/transcription path.
+Tests live in `tests/` and are grouped into categories (`unit`, `integration`, `security`, `performance`, `e2e`) by `run_tests.py`. They need only `pytest` (`pytest-cov` for `run_tests.py full`) and make no network calls. Most existing tests cover Confluence integration, the database layer, and Flask routes — there is little coverage of the audio/transcription path.
+
+When writing Flask tests: `AUTH_DEBUG_MODE` from a local `.env` overrides `auth.debug_mode` of the test config, so pin it with `patch.dict(os.environ, ...)` while the app is created. With debug mode on, set `auth.debug_user` to the user that owns the test jobs; with it off, patch `app.token_validator.validate_request`. In `tearDown`, drop the app reference and call `gc.collect()` before deleting the temp database (open sqlite3 connections lock the file on Windows).
 
 ## Things to watch for
 

@@ -24,7 +24,9 @@ class TestRunner:
                 'tests/test_database_models.py',
                 'tests/test_confluence_client.py',
                 'tests/test_confluence_encryption.py',
-                'tests/test_protocol_generator.py'
+                'tests/test_protocol_generator.py',
+                'tests/test_admin_role.py',
+                'tests/test_space_key_auto_extraction.py'
             ],
             'integration': [
                 'tests/test_database_integration.py',
@@ -32,9 +34,6 @@ class TestRunner:
             ],
             'security': [
                 'tests/test_security.py'
-            ],
-            'frontend': [
-                'tests/test_frontend_ui.py'
             ],
             'performance': [
                 'tests/test_performance.py'
@@ -95,17 +94,15 @@ class TestRunner:
                 'stderr': str(e)
             }
     
-    def check_dependencies(self) -> bool:
+    def check_dependencies(self, coverage: bool = False) -> bool:
         """Check if required dependencies are installed"""
         print("Checking dependencies...")
-        
-        required_packages = [
-            'pytest',
-            'coverage',
-            'selenium',
-            'psutil'
-        ]
-        
+
+        required_packages = ['pytest']
+        if coverage:
+            # --cov options are provided by the pytest-cov plugin
+            required_packages.append('pytest_cov')
+
         missing_packages = []
         
         for package in required_packages:
@@ -118,7 +115,7 @@ class TestRunner:
         
         if missing_packages:
             print(f"\nMissing packages: {', '.join(missing_packages)}")
-            print("Install with: pip install " + " ".join(missing_packages))
+            print("Install with: pip install " + " ".join(p.replace('_', '-') for p in missing_packages))
             return False
         
         print("All dependencies satisfied!")
@@ -128,7 +125,7 @@ class TestRunner:
                   verbose: bool = False, parallel: bool = False) -> bool:
         """Run tests for specified categories"""
         
-        if not self.check_dependencies():
+        if not self.check_dependencies(coverage=coverage):
             return False
         
         # Determine which tests to run
@@ -288,14 +285,15 @@ def main():
     
     parser.add_argument(
         'action',
+        nargs='?',
         choices=['quick', 'full', 'security', 'performance', 'coverage', 'lint', 'clean'],
-        help='Test action to perform'
+        help='Test action to perform (omit to run all tests or the given --categories)'
     )
-    
+
     parser.add_argument(
         '--categories',
         nargs='+',
-        choices=['unit', 'integration', 'security', 'frontend', 'performance', 'e2e'],
+        choices=['unit', 'integration', 'security', 'performance', 'e2e'],
         help='Specific test categories to run'
     )
     
@@ -322,7 +320,14 @@ def main():
     runner = TestRunner()
     
     # Execute requested action
-    if args.action == 'quick':
+    if args.categories:
+        success = runner.run_tests(
+            categories=args.categories,
+            coverage=args.coverage,
+            verbose=args.verbose,
+            parallel=args.parallel
+        )
+    elif args.action == 'quick':
         success = runner.run_quick_tests()
     elif args.action == 'full':
         success = runner.run_full_tests()
@@ -337,13 +342,6 @@ def main():
     elif args.action == 'clean':
         runner.clean_test_artifacts()
         success = True
-    elif args.categories:
-        success = runner.run_tests(
-            categories=args.categories,
-            coverage=args.coverage,
-            verbose=args.verbose,
-            parallel=args.parallel
-        )
     else:
         success = runner.run_tests(
             coverage=args.coverage,

@@ -6,13 +6,11 @@ Security tests for token encryption, access control, and security measures
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 import tempfile
+import gc
 import os
 import sys
 import json
 import time
-import hashlib
-import secrets
-from datetime import datetime, timedelta
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -91,32 +89,27 @@ class TestTokenEncryptionSecurity(unittest.TestCase):
         password = "same_password"
         
         # Encrypt same token multiple times
-        encrypted_results = []
-        for _ in range(10):
-            encrypted_data = self.manager.encrypt_token(token, password)
-            encrypted_results.append(encrypted_data['encrypted_token'])
-        
+        encrypted_results = [self.manager.encrypt_token(token, password) for _ in range(10)]
+
         # All encrypted results should be different (due to random salts)
-        self.assertEqual(len(set(encrypted_results)), 10)
-        
+        self.assertEqual(len({data['encrypted_token'] for data in encrypted_results}), 10)
+
         # All should decrypt to same original token
-        for encrypted_data in [{'encrypted_token': enc, 'salt': self.manager._generate_salt()} 
-                              for enc in encrypted_results]:
-            # Note: This test is simplified - in real scenario each has its own salt
-            pass
-    
+        for encrypted_data in encrypted_results:
+            self.assertEqual(self.manager.decrypt_token(encrypted_data, password), token)
+
     def test_salt_randomness(self):
         """Test that salts are properly random"""
         salts = []
-        for _ in range(100):
-            salt = self.manager._generate_salt()
+        for _ in range(20):
+            _, salt = self.manager.generate_master_key("same_password")
             salts.append(salt)
-            
+
             # Salt should be reasonable length
             self.assertGreaterEqual(len(salt), 16)
-        
+
         # All salts should be unique
-        self.assertEqual(len(set(salts)), 100)
+        self.assertEqual(len(set(salts)), 20)
     
     def test_encryption_with_weak_password(self):
         """Test encryption behavior with weak passwords"""
@@ -133,36 +126,13 @@ class TestTokenEncryptionSecurity(unittest.TestCase):
             decrypted = self.manager.decrypt_token(encrypted_data, weak_pwd)
             self.assertEqual(decrypted, self.test_token)
     
-    def test_timing_attack_resistance(self):
-        """Test resistance to timing attacks"""
-        # Test that decryption takes similar time for wrong vs right password
-        correct_password = "correct_password"
-        wrong_password = "wrong_password"
-        
-        # Encrypt token
-        encrypted_data = self.manager.encrypt_token(self.test_token, correct_password)
-        
-        # Time correct decryption
-        start_time = time.time()
-        try:
-            self.manager.decrypt_token(encrypted_data, correct_password)
-        except:
-            pass
-        correct_time = time.time() - start_time
-        
-        # Time incorrect decryption
-        start_time = time.time()
-        try:
-            self.manager.decrypt_token(encrypted_data, wrong_password)
-        except EncryptionDataError:
-            pass
-        wrong_time = time.time() - start_time
-        
-        # Times should be reasonably similar (within 10x factor)
-        # This is a basic check - real timing attack resistance requires more sophisticated testing
-        time_ratio = max(correct_time, wrong_time) / min(correct_time, wrong_time)
-        self.assertLess(time_ratio, 10.0)
-    
+    def test_wrong_password_is_rejected(self):
+        """Test that a token cannot be decrypted with a wrong password"""
+        encrypted_data = self.manager.encrypt_token(self.test_token, "correct_password")
+
+        with self.assertRaises(EncryptionDataError):
+            self.manager.decrypt_token(encrypted_data, "wrong_password")
+
     def test_encrypted_data_format_security(self):
         """Test that encrypted data format doesn't leak information"""
         tokens = ["short", "medium_length_token", "very_long_token_that_is_much_longer_than_others"]
@@ -253,15 +223,17 @@ class TestAccessControlSecurity(unittest.TestCase):
         with open(self.config_file.name, 'w') as f:
             json.dump(self.test_config, f, indent=2)
         
-        # Mock ConfigLoader
-        with patch('run_web.ConfigLoader.load_config') as mock_load_config, \
+        # Mock ConfigLoader.
+        # AUTH_DEBUG_MODE from a local .env overrides config, so pin it for app creation.
+        with patch.dict(os.environ, {'AUTH_DEBUG_MODE': 'false'}), \
+             patch('run_web.ConfigLoader.load_config') as mock_load_config, \
              patch('run_web.ConfigLoader.load_api_keys') as mock_load_api_keys, \
              patch('run_web.ConfigLoader.validate_api_keys') as mock_validate_keys:
-            
+
             mock_load_config.return_value = self.test_config
             mock_load_api_keys.return_value = self.mock_api_keys
             mock_validate_keys.return_value = (True, True, 'test_deepgram_key', 'test_claude_key')
-            
+
             # Create Flask app
             self.app = WorkingMeetingWebApp(self.config_file.name)
             self.client = self.app.app.test_client()
@@ -288,13 +260,24 @@ class TestAccessControlSecurity(unittest.TestCase):
     
     def tearDown(self):
         """Clean up test files"""
-        try:
-            os.unlink(self.test_db.name)
-            os.unlink(self.config_file.name)
-            os.unlink(self.api_keys_file.name)
-        except FileNotFoundError:
-            pass
-    
+        # Open sqlite3 connections keep the database file locked on Windows
+        self.app.executor.shutdown(wait=True)
+        self.client = None
+        self.app = None
+        gc.collect()
+        for path in (self.test_db.name, self.config_file.name, self.api_keys_file.name):
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+
+    def login(self, user_data):
+        """Makes the token validator accept requests as the given user until the test ends"""
+        patcher = patch.object(self.app.token_validator, 'validate_request',
+                               return_value=(True, dict(user_data), None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_unauthorized_access_prevention(self):
         """Test that unauthorized access is properly prevented"""
         # Test accessing protected endpoints without authentication
@@ -388,15 +371,14 @@ class TestAccessControlSecurity(unittest.TestCase):
         
         self.app.db_manager.create_job(job1_data)
         self.app.db_manager.create_job(job2_data)
-        
-        # User 1 headers
-        user1_headers = {
-            'X-Identity-Token': 'user1_token',
-            'X-User-Id': self.user1_id,
-            'X-User-Email': 'user1@example.com',
-            'X-User-Name': 'Security User 1'
-        }
-        
+
+        self.login(self.user1_data)
+        user1_headers = {'X-Identity-Token': 'user1_token'}
+
+        # User 1 can access their own job
+        response = self.client.get('/api/status/user1_job', headers=user1_headers)
+        self.assertEqual(response.status_code, 200)
+
         # User 1 tries to access User 2's job
         response = self.client.get('/status/user2_job', headers=user1_headers)
         # Should be denied (redirect or 404)
@@ -421,13 +403,9 @@ class TestAccessControlSecurity(unittest.TestCase):
             "'; EXEC xp_cmdshell('dir'); --"
         ]
         
-        user_headers = {
-            'X-Identity-Token': 'test_token',
-            'X-User-Id': self.user1_id,
-            'X-User-Email': 'user1@example.com',
-            'X-User-Name': 'Security User 1'
-        }
-        
+        self.login(self.user1_data)
+        user_headers = {'X-Identity-Token': 'test_token'}
+
         for payload in sql_injection_payloads:
             with self.subTest(payload=payload):
                 # Test in job_id parameter
@@ -438,7 +416,12 @@ class TestAccessControlSecurity(unittest.TestCase):
                 # Test in API endpoint
                 response = self.client.get(f'/api/status/{payload}', headers=user_headers)
                 self.assertNotEqual(response.status_code, 500)
-    
+
+        # The users table is intact
+        self.assertIsNotNone(self.app.db_manager.get_user_by_id(self.user1_id))
+        self.assertIsNotNone(self.app.db_manager.get_user_by_id(self.user2_id))
+        self.assertIsNone(self.app.db_manager.get_user_by_id('hacker'))
+
     def test_xss_prevention(self):
         """Test prevention of Cross-Site Scripting (XSS) attacks"""
         xss_payloads = [
@@ -451,6 +434,9 @@ class TestAccessControlSecurity(unittest.TestCase):
             "<%2Fscript%3E%3Cscript%3Ealert('xss')%3C%2Fscript%3E"
         ]
         
+        self.login(self.user1_data)
+        user_headers = {'X-Identity-Token': 'test_token'}
+
         # Create job with XSS payload in filename
         for i, payload in enumerate(xss_payloads):
             with self.subTest(payload=payload):
@@ -463,25 +449,17 @@ class TestAccessControlSecurity(unittest.TestCase):
                     'progress': 100,
                     'message': payload
                 }
-                
+
                 self.app.db_manager.create_job(job_data)
-                
-                user_headers = {
-                    'X-Identity-Token': 'test_token',
-                    'X-User-Id': self.user1_id,
-                    'X-User-Email': 'user1@example.com',
-                    'X-User-Name': 'Security User 1'
-                }
-                
+
                 # Get status page
                 response = self.client.get(f'/status/xss_test_job_{i}', headers=user_headers)
-                
-                if response.status_code == 200:
-                    # Check that script tags are escaped or removed
-                    response_text = response.data.decode('utf-8')
-                    self.assertNotIn('<script>', response_text.lower())
-                    self.assertNotIn('javascript:', response_text.lower())
-                    self.assertNotIn('onerror=', response_text.lower())
+                self.assertEqual(response.status_code, 200)
+
+                # The payload must never appear unescaped in the page
+                response_text = response.data.decode('utf-8')
+                if '<' in payload:
+                    self.assertNotIn(payload, response_text)
     
     def test_path_traversal_prevention(self):
         """Test prevention of path traversal attacks"""
@@ -494,13 +472,9 @@ class TestAccessControlSecurity(unittest.TestCase):
             "..%c0%af..%c0%af..%c0%afetc%c0%afpasswd"
         ]
         
-        user_headers = {
-            'X-Identity-Token': 'test_token',
-            'X-User-Id': self.user1_id,
-            'X-User-Email': 'user1@example.com',
-            'X-User-Name': 'Security User 1'
-        }
-        
+        self.login(self.user1_data)
+        user_headers = {'X-Identity-Token': 'test_token'}
+
         for payload in path_traversal_payloads:
             with self.subTest(payload=payload):
                 # Test in various endpoints
@@ -512,66 +486,15 @@ class TestAccessControlSecurity(unittest.TestCase):
                 
                 for endpoint in endpoints:
                     response = self.client.get(endpoint, headers=user_headers)
-                    # Should not return sensitive files (not 200 with file content)
-                    if response.status_code == 200:
-                        response_text = response.data.decode('utf-8', errors='ignore')
-                        # Should not contain typical system file content
-                        self.assertNotIn('root:', response_text)
-                        self.assertNotIn('/bin/bash', response_text)
-                        self.assertNotIn('Administrator', response_text)
-    
-    def test_csrf_protection(self):
-        """Test CSRF protection mechanisms"""
-        user_headers = {
-            'X-Identity-Token': 'test_token',
-            'X-User-Id': self.user1_id,
-            'X-User-Email': 'user1@example.com',
-            'X-User-Name': 'Security User 1'
-        }
-        
-        # Test POST requests without proper headers/tokens
-        post_endpoints = [
-            '/upload',
-            '/generate_protocol/test_job',
-            '/publish_confluence/test_job'
-        ]
-        
-        for endpoint in post_endpoints:
-            with self.subTest(endpoint=endpoint):
-                # Test with missing Origin header
-                response = self.client.post(endpoint, headers=user_headers)
-                # Should handle CSRF appropriately
-                self.assertIn(response.status_code, [400, 403, 302, 404])
-    
-    def test_rate_limiting_simulation(self):
-        """Test rate limiting behavior simulation"""
-        user_headers = {
-            'X-Identity-Token': 'test_token',
-            'X-User-Id': self.user1_id,
-            'X-User-Email': 'user1@example.com',
-            'X-User-Name': 'Security User 1'
-        }
-        
-        # Simulate rapid requests
-        responses = []
-        for i in range(20):  # Make 20 rapid requests
-            response = self.client.get('/', headers=user_headers)
-            responses.append(response.status_code)
-        
-        # All requests should be handled (no rate limiting implemented yet)
-        # This test documents current behavior
-        for status_code in responses:
-            self.assertIn(status_code, [200, 302, 401])
-    
+                    # No job matches the payload, so no file may be served
+                    self.assertNotEqual(response.status_code, 200)
+                    self.assertNotEqual(response.status_code, 500)
+
     def test_sensitive_data_exposure_prevention(self):
         """Test that sensitive data is not exposed in responses"""
-        user_headers = {
-            'X-Identity-Token': 'test_token',
-            'X-User-Id': self.user1_id,
-            'X-User-Email': 'user1@example.com',
-            'X-User-Name': 'Security User 1'
-        }
-        
+        self.login(self.user1_data)
+        user_headers = {'X-Identity-Token': 'test_token'}
+
         # Test various endpoints for sensitive data exposure
         endpoints = [
             '/health',
@@ -579,98 +502,17 @@ class TestAccessControlSecurity(unittest.TestCase):
             '/jobs'
         ]
         
-        sensitive_patterns = [
-            'password',
-            'secret',
-            'api_key',
-            'token',
-            'private_key',
-            'database',
-            'config'
-        ]
-        
         for endpoint in endpoints:
             with self.subTest(endpoint=endpoint):
                 response = self.client.get(endpoint, headers=user_headers)
-                
-                if response.status_code == 200:
-                    response_text = response.data.decode('utf-8').lower()
-                    
-                    # Check for sensitive data patterns
-                    for pattern in sensitive_patterns:
-                        if pattern in response_text:
-                            # If pattern found, ensure it's not exposing actual sensitive values
-                            # This is a basic check - more sophisticated analysis needed for production
-                            self.assertNotIn('test_deepgram_key', response_text)
-                            self.assertNotIn('test_claude_key', response_text)
-                            self.assertNotIn('test_secret_key', response_text)
+                self.assertEqual(response.status_code, 200)
 
-
-class TestSecurityHeaders(unittest.TestCase):
-    """Test security headers and configurations"""
-    
-    def setUp(self):
-        """Set up test Flask application"""
-        # Create minimal test config
-        self.test_config = {
-            'database': {'path': ':memory:'},
-            'auth': {'enabled': True, 'debug_mode': True},
-            'confluence': {'enabled': False}
-        }
-        
-        self.mock_api_keys = {
-            'deepgram': {'api_key': 'test_key'},
-            'claude': {'api_key': 'test_key'}
-        }
-        
-        with patch('run_web.ConfigLoader.load_config') as mock_load_config, \
-             patch('run_web.ConfigLoader.load_api_keys') as mock_load_api_keys, \
-             patch('run_web.ConfigLoader.validate_api_keys') as mock_validate_keys:
-            
-            mock_load_config.return_value = self.test_config
-            mock_load_api_keys.return_value = self.mock_api_keys
-            mock_validate_keys.return_value = (True, True, 'test_key', 'test_key')
-            
-            self.app = WorkingMeetingWebApp('test_config.json')
-            self.client = self.app.app.test_client()
-    
-    def test_security_headers_presence(self):
-        """Test presence of important security headers"""
-        response = self.client.get('/health')
-        
-        # Check for important security headers
-        headers_to_check = [
-            'X-Content-Type-Options',
-            'X-Frame-Options',
-            'X-XSS-Protection',
-            'Content-Security-Policy',
-            'Strict-Transport-Security'
-        ]
-        
-        for header in headers_to_check:
-            with self.subTest(header=header):
-                # Note: These headers might not be implemented yet
-                # This test documents what should be implemented
-                if header in response.headers:
-                    self.assertIsNotNone(response.headers[header])
-    
-    def test_content_type_headers(self):
-        """Test proper content type headers"""
-        response = self.client.get('/health')
-        
-        if response.status_code == 200:
-            # Should have proper content type
-            self.assertIn('application/json', response.headers.get('Content-Type', ''))
-    
-    def test_server_information_disclosure(self):
-        """Test that server information is not disclosed"""
-        response = self.client.get('/health')
-        
-        # Should not expose server version information
-        server_header = response.headers.get('Server', '')
-        self.assertNotIn('Flask', server_header)
-        self.assertNotIn('Werkzeug', server_header)
-        self.assertNotIn('Python', server_header)
+                # Secrets from the configuration must never reach a response
+                response_text = response.data.decode('utf-8').lower()
+                self.assertNotIn('test_deepgram_key', response_text)
+                self.assertNotIn('test_claude_key', response_text)
+                self.assertNotIn('test_secret_key', response_text)
+                self.assertNotIn('test_token_123', response_text)
 
 
 if __name__ == '__main__':

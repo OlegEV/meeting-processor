@@ -3,15 +3,20 @@
 Unit tests for is_current_user_admin()
 """
 
+import importlib.util
 import unittest
 import sys
 import os
 from unittest.mock import MagicMock
 
-# Stub out packages that may not be installed in the test environment
-for _mod in ('jwt', 'flask', 'werkzeug', 'werkzeug.exceptions'):
-    if _mod not in sys.modules:
-        sys.modules[_mod] = MagicMock()
+# Stub out packages only when they are really missing: an unconditional stub
+# would replace the real flask/werkzeug for every test module collected later
+for _pkg, _mods in (('jwt', ('jwt',)),
+                    ('flask', ('flask',)),
+                    ('werkzeug', ('werkzeug', 'werkzeug.exceptions'))):
+    if importlib.util.find_spec(_pkg) is None:
+        for _mod in _mods:
+            sys.modules.setdefault(_mod, MagicMock())
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

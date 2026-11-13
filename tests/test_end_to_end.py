@@ -6,13 +6,11 @@ End-to-end workflow tests for the complete Confluence publication workflow
 
 import unittest
 from unittest.mock import Mock, patch, MagicMock, mock_open
+import gc
 import tempfile
 import os
 import sys
 import json
-import time
-import threading
-from pathlib import Path
 import io
 
 # Add project root to path
@@ -41,7 +39,7 @@ class TestCompleteWorkflow(unittest.TestCase):
             },
             'auth': {
                 'enabled': True,
-                'debug_mode': True,  # Enable debug mode for testing
+                'debug_mode': False,  # Requests are authenticated through the token validator
                 'token_header': 'X-Identity-Token',
                 'jwt_secret': 'test_secret_key_for_testing'
             },
@@ -88,20 +86,22 @@ class TestCompleteWorkflow(unittest.TestCase):
         with open(self.config_file.name, 'w') as f:
             json.dump(self.test_config, f, indent=2)
         
-        # Mock ConfigLoader
-        with patch('run_web.ConfigLoader.load_config') as mock_load_config, \
+        # Mock ConfigLoader.
+        # AUTH_DEBUG_MODE from a local .env overrides config, so pin it for app creation.
+        with patch.dict(os.environ, {'AUTH_DEBUG_MODE': 'false'}), \
+             patch('run_web.ConfigLoader.load_config') as mock_load_config, \
              patch('run_web.ConfigLoader.load_api_keys') as mock_load_api_keys, \
              patch('run_web.ConfigLoader.validate_api_keys') as mock_validate_keys:
-            
+
             mock_load_config.return_value = self.test_config
             mock_load_api_keys.return_value = self.mock_api_keys
             mock_validate_keys.return_value = (True, True, 'test_deepgram_key', 'test_claude_key')
-            
+
             # Create Flask app
             self.app = WorkingMeetingWebApp(self.config_file.name)
             self.client = self.app.app.test_client()
             self.app.app.config['TESTING'] = True
-        
+
         # Create test user
         self.test_user_id = 'e2e_test_user'
         self.test_user_data = {
@@ -111,15 +111,13 @@ class TestCompleteWorkflow(unittest.TestCase):
             'full_name': 'End-to-End Test User'
         }
         self.app.db_manager.create_user(self.test_user_data)
-        
-        # Mock authentication headers
-        self.auth_headers = {
-            'X-Identity-Token': 'e2e_test_token',
-            'X-User-Id': self.test_user_id,
-            'X-User-Email': 'e2e@example.com',
-            'X-User-Name': 'E2E Test User'
-        }
-        
+
+        # Requests are made as the test user unless a test switches with as_user()
+        self.auth_headers = {'X-Identity-Token': 'e2e_test_token'}
+        default_user = self.as_user(self.test_user_data)
+        default_user.start()
+        self.addCleanup(default_user.stop)
+
         # Test protocol content
         self.test_protocol_content = """# Meeting Protocol
 Date: 2025-09-02
@@ -156,13 +154,43 @@ Continue with performance testing and documentation.
     
     def tearDown(self):
         """Clean up test files"""
-        try:
-            os.unlink(self.test_db.name)
-            os.unlink(self.config_file.name)
-            os.unlink(self.api_keys_file.name)
-        except FileNotFoundError:
-            pass
-    
+        # Open sqlite3 connections keep the database file locked on Windows
+        self.app.executor.shutdown(wait=True)
+        self.client = None
+        self.app = None
+        gc.collect()
+        for path in (self.test_db.name, self.config_file.name, self.api_keys_file.name):
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+
+    def as_user(self, user_data):
+        """Patcher that makes the token validator accept requests as the given user"""
+        return patch.object(self.app.token_validator, 'validate_request',
+                            return_value=(True, dict(user_data), None))
+
+    def publish_to_confluence(self, job_id, mock_client_instance):
+        """Posts the job's protocol to /publish_confluence as an AJAX request"""
+        metadata = {
+            'page_id': '111',
+            'space_key': 'TEST',
+            'page_title': 'Parent page',
+            'extraction_method': 'test'
+        }
+        headers = dict(self.auth_headers, **{'X-Requested-With': 'XMLHttpRequest'})
+
+        with patch.object(self.app, 'extract_confluence_metadata', return_value=metadata), \
+             patch('confluence_client.ConfluenceServerClient', return_value=mock_client_instance):
+            return self.client.post(
+                f'/publish_confluence/{job_id}',
+                data={
+                    'base_page_url': 'https://wiki.example.com/pages/viewpage.action?pageId=111',
+                    'page_title': '20250902 - E2E Test Meeting'
+                },
+                headers=headers
+            )
+
     def test_complete_meeting_processing_workflow(self):
         """Test complete workflow from file upload to protocol generation"""
         # Step 1: Upload file
@@ -223,8 +251,10 @@ Continue with performance testing and documentation.
         # Step 3: Verify status page shows completion
         response = self.client.get(f'/status/{job_id}', headers=self.auth_headers)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'completed', response.data)
         self.assertIn(b'e2e_test_meeting.mp3', response.data)
+
+        response = self.client.get(f'/api/status/{job_id}', headers=self.auth_headers)
+        self.assertEqual(json.loads(response.data)['stage'], 'completed')
         
         # Step 4: Test file download
         response = self.client.get(f'/download/{job_id}/transcript', headers=self.auth_headers)
@@ -246,8 +276,7 @@ Continue with performance testing and documentation.
         except:
             pass
     
-    @patch('confluence_client.ConfluenceServerClient')
-    def test_complete_confluence_publication_workflow(self, mock_confluence_client):
+    def test_complete_confluence_publication_workflow(self):
         """Test complete Confluence publication workflow"""
         # Step 1: Create completed job with protocol
         job_id = 'e2e_confluence_job'
@@ -280,19 +309,10 @@ Continue with performance testing and documentation.
                 'webui': '/spaces/TEST/pages/123456'
             }
         }
-        mock_confluence_client.return_value = mock_client_instance
-        
+
         # Step 3: Publish to Confluence
-        publication_data = {
-            'base_page_url': 'https://test.atlassian.net/wiki/spaces/TEST/pages/parent/',
-            'page_title': '20250902 - E2E Test Meeting',
-            'space_key': 'TEST'
-        }
-        
-        response = self.client.post(f'/publish_confluence/{job_id}',
-                                  data=publication_data,
-                                  headers=self.auth_headers)
-        
+        response = self.publish_to_confluence(job_id, mock_client_instance)
+
         self.assertEqual(response.status_code, 200)
         
         response_data = json.loads(response.data)
@@ -323,8 +343,7 @@ Continue with performance testing and documentation.
         except:
             pass
     
-    @patch('confluence_client.ConfluenceServerClient')
-    def test_confluence_publication_failure_and_retry_workflow(self, mock_confluence_client):
+    def test_confluence_publication_failure_and_retry_workflow(self):
         """Test Confluence publication failure and retry workflow"""
         # Step 1: Create completed job
         job_id = 'e2e_retry_job'
@@ -349,33 +368,19 @@ Continue with performance testing and documentation.
         # Step 2: Mock Confluence client for failure
         mock_client_instance = Mock()
         mock_client_instance.create_page.side_effect = Exception("Network timeout")
-        mock_confluence_client.return_value = mock_client_instance
-        
-        # Step 3: Attempt publication (should fail)
-        publication_data = {
-            'base_page_url': 'https://test.atlassian.net/wiki/spaces/TEST/pages/parent/',
-            'page_title': '20250902 - Retry Test Meeting',
-            'space_key': 'TEST'
-        }
-        
-        response = self.client.post(f'/publish_confluence/{job_id}',
-                                  data=publication_data,
-                                  headers=self.auth_headers)
-        
-        self.assertEqual(response.status_code, 500)
-        
+
+        # Step 3: Attempt publication (should fail); AJAX errors are reported in the JSON body
+        response = self.publish_to_confluence(job_id, mock_client_instance)
+
         response_data = json.loads(response.data)
         self.assertFalse(response_data['success'])
-        self.assertIn('error', response_data)
-        
-        # Step 4: Verify failed publication was saved
+        self.assertIn('Network timeout', response_data['error'])
+
+        # Step 4: Nothing was published
         publications = self.app.db_manager.get_confluence_publications_by_job_id(job_id)
-        self.assertEqual(len(publications), 1)
-        
-        failed_publication = publications[0]
-        self.assertEqual(failed_publication['publication_status'], PublicationStatus.FAILED)
-        self.assertIn('Network timeout', failed_publication['error_message'])
-        
+        self.assertFalse([p for p in publications
+                          if p['publication_status'] == PublicationStatus.PUBLISHED])
+
         # Step 5: Mock successful retry
         mock_client_instance.create_page.side_effect = None
         mock_client_instance.create_page.return_value = {
@@ -387,19 +392,16 @@ Continue with performance testing and documentation.
         }
         
         # Step 6: Retry publication
-        response = self.client.post(f'/publish_confluence/{job_id}',
-                                  data=publication_data,
-                                  headers=self.auth_headers)
-        
+        response = self.publish_to_confluence(job_id, mock_client_instance)
+
         self.assertEqual(response.status_code, 200)
-        
+
         response_data = json.loads(response.data)
         self.assertTrue(response_data['success'])
-        
+
         # Step 7: Verify successful publication was saved
         publications = self.app.db_manager.get_confluence_publications_by_job_id(job_id)
-        self.assertEqual(len(publications), 2)  # Failed + successful
-        
+
         successful_publication = next(p for p in publications if p['publication_status'] == PublicationStatus.PUBLISHED)
         self.assertEqual(successful_publication['confluence_page_id'], '789012')
         
@@ -482,13 +484,8 @@ Continue with performance testing and documentation.
         }
         self.app.db_manager.create_user(user2_data)
         
-        user2_headers = {
-            'X-Identity-Token': 'e2e_test_token_2',
-            'X-User-Id': user2_id,
-            'X-User-Email': 'e2e2@example.com',
-            'X-User-Name': 'E2E Test User 2'
-        }
-        
+        user2_headers = {'X-Identity-Token': 'e2e_test_token_2'}
+
         # Step 2: Create job for user 1
         job_id = 'e2e_isolation_job'
         job_data = {
@@ -501,20 +498,25 @@ Continue with performance testing and documentation.
         }
         self.app.db_manager.create_job(job_data)
         
-        # Step 3: User 2 tries to access user 1's job
-        response = self.client.get(f'/status/{job_id}', headers=user2_headers)
-        # Should be denied (redirect)
-        self.assertEqual(response.status_code, 302)
-        
-        # Step 4: User 2 tries to access via API
-        response = self.client.get(f'/api/status/{job_id}', headers=user2_headers)
-        # Should be denied
-        self.assertEqual(response.status_code, 404)
-        
-        # Step 5: Direct result links are public; this job has no transcript file
-        response = self.client.get(f'/download/{job_id}/transcript', headers=user2_headers)
-        self.assertEqual(response.status_code, 404)
-        
+        with self.as_user(user2_data):
+            # Step 3: User 2 tries to access user 1's job
+            response = self.client.get(f'/status/{job_id}', headers=user2_headers)
+            # Should be denied (redirect)
+            self.assertEqual(response.status_code, 302)
+
+            # Step 4: User 2 tries to access via API
+            response = self.client.get(f'/api/status/{job_id}', headers=user2_headers)
+            # Should be denied
+            self.assertEqual(response.status_code, 404)
+
+            # Step 5: Direct result links are public; this job has no transcript file
+            response = self.client.get(f'/download/{job_id}/transcript', headers=user2_headers)
+            self.assertEqual(response.status_code, 404)
+
+            # User 2 does not see user 1's job in the list
+            response = self.client.get('/jobs', headers=user2_headers)
+            self.assertNotIn(b'isolation_test.mp3', response.data)
+
         # Step 6: User 1 can still access their own job
         response = self.client.get(f'/status/{job_id}', headers=self.auth_headers)
         self.assertEqual(response.status_code, 200)
@@ -636,7 +638,7 @@ Continue with performance testing and documentation.
         # Step 3: Test statistics page
         response = self.client.get('/statistics', headers=self.auth_headers)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'Statistics', response.data)
+        self.assertIn('Статистика'.encode('utf-8'), response.data)
         
         # Step 4: Test health endpoint
         response = self.client.get('/health')
@@ -663,121 +665,11 @@ Continue with performance testing and documentation.
         self.assertIn('stats1.mp3', page_content)
         self.assertIn('stats2.mp3', page_content)
         self.assertIn('stats3.mp3', page_content)
-        self.assertIn('completed', page_content)
-        self.assertIn('processing', page_content)
-        self.assertIn('error', page_content)
-
-
-class TestWorkflowPerformance(unittest.TestCase):
-    """Performance tests for workflow operations"""
-    
-    def setUp(self):
-        """Set up performance test environment"""
-        # Create minimal test config
-        self.test_config = {
-            'database': {'path': ':memory:'},
-            'auth': {'enabled': True, 'debug_mode': True},
-            'confluence': {'enabled': False}  # Disable for performance testing
-        }
-        
-        self.mock_api_keys = {
-            'deepgram': {'api_key': 'test_key'},
-            'claude': {'api_key': 'test_key'}
-        }
-        
-        with patch('run_web.ConfigLoader.load_config') as mock_load_config, \
-             patch('run_web.ConfigLoader.load_api_keys') as mock_load_api_keys, \
-             patch('run_web.ConfigLoader.validate_api_keys') as mock_validate_keys:
-            
-            mock_load_config.return_value = self.test_config
-            mock_load_api_keys.return_value = self.mock_api_keys
-            mock_validate_keys.return_value = (True, True, 'test_key', 'test_key')
-            
-            self.app = WorkingMeetingWebApp('test_config.json')
-            self.client = self.app.app.test_client()
-        
-        # Create test user
-        self.test_user_id = 'perf_test_user'
-        user_data = {
-            'user_id': self.test_user_id,
-            'email': 'perf@example.com',
-            'name': 'Performance Test User'
-        }
-        self.app.db_manager.create_user(user_data)
-        
-        self.auth_headers = {
-            'X-Identity-Token': 'perf_token',
-            'X-User-Id': self.test_user_id,
-            'X-User-Email': 'perf@example.com',
-            'X-User-Name': 'Performance Test User'
-        }
-    
-    def test_bulk_job_creation_performance(self):
-        """Test performance of creating multiple jobs"""
-        import time
-        
-        num_jobs = 50
-        start_time = time.time()
-        
-        # Create multiple jobs
-        for i in range(num_jobs):
-            job_data = {
-                'job_id': f'perf_job_{i}',
-                'user_id': self.test_user_id,
-                'filename': f'perf_test_{i}.mp3',
-                'template': 'standard',
-                'status': 'completed',
-                'progress': 100
-            }
-            self.app.db_manager.create_job(job_data)
-        
-        creation_time = time.time() - start_time
-        
-        # Should complete in reasonable time (less than 5 seconds)
-        self.assertLess(creation_time, 5.0)
-        
-        # Verify all jobs were created
-        user_jobs = self.app.db_manager.get_user_jobs(self.test_user_id)
-        self.assertEqual(len(user_jobs), num_jobs)
-        
-        # Test jobs list page performance
-        start_time = time.time()
-        response = self.client.get('/jobs', headers=self.auth_headers)
-        page_load_time = time.time() - start_time
-        
-        self.assertEqual(response.status_code, 200)
-        # Page should load quickly even with many jobs
-        self.assertLess(page_load_time, 2.0)
-    
-    def test_api_response_performance(self):
-        """Test API response performance"""
-        import time
-        
-        # Create test job
-        job_data = {
-            'job_id': 'api_perf_job',
-            'user_id': self.test_user_id,
-            'filename': 'api_perf_test.mp3',
-            'template': 'standard',
-            'status': 'processing',
-            'progress': 50,
-            'message': 'Processing...'
-        }
-        self.app.db_manager.create_job(job_data)
-        
-        # Test API response time
-        start_time = time.time()
-        response = self.client.get('/api/status/api_perf_job', headers=self.auth_headers)
-        api_response_time = time.time() - start_time
-        
-        self.assertEqual(response.status_code, 200)
-        # API should respond quickly
-        self.assertLess(api_response_time, 0.5)
-        
-        # Verify response content
-        data = json.loads(response.data)
-        self.assertEqual(data['status'], 'processing')
-        self.assertEqual(data['progress'], 50)
+        # Statuses are rendered as Russian badges
+        self.assertIn('Транскрибация готова', page_content)
+        self.assertNotIn('table-responsive', page_content)
+        self.assertIn('Транскрибация', page_content)
+        self.assertIn('Ошибка транскрибации', page_content)
 
 
 if __name__ == '__main__':

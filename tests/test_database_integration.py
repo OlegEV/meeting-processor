@@ -4,7 +4,9 @@ Integration tests for database operations with Confluence functionality
 """
 
 import unittest
+import gc
 import tempfile
+from contextlib import closing
 import os
 import sys
 import sqlite3
@@ -62,11 +64,15 @@ class TestDatabaseIntegration(unittest.TestCase):
     
     def tearDown(self):
         """Clean up test database"""
+        # sqlite3 connections are closed only when garbage-collected;
+        # on Windows the file cannot be removed while one is still open
+        self.db_manager = None
+        gc.collect()
         try:
             os.unlink(self.db_path)
         except FileNotFoundError:
             pass
-    
+
     def test_database_initialization(self):
         """Test database initialization and schema creation"""
         # Verify tables exist
@@ -198,8 +204,13 @@ class TestDatabaseIntegration(unittest.TestCase):
         user_jobs = self.db_manager.get_user_jobs(user_id)
         self.assertEqual(len(user_jobs), 2)
         
-        # Delete user
-        self.db_manager.delete_user(user_id)
+        # Delete user (DatabaseManager has no delete_user, so go through SQL)
+        conn = self.db_manager._get_connection()
+        try:
+            conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
         
         # Verify jobs are also deleted (cascade)
         for job_id in job_ids:
@@ -296,7 +307,7 @@ class TestDatabaseIntegration(unittest.TestCase):
         self.assertEqual(len(stats['by_space']), 1)
         space_stats = stats['by_space'][0]
         self.assertEqual(space_stats['confluence_space_key'], 'TEST')
-        self.assertEqual(space_stats['total_publications'], 5)
+        self.assertEqual(space_stats['publications_count'], 5)
         self.assertEqual(space_stats['published_count'], 2)
     
     def test_publication_retry_functionality(self):
@@ -584,16 +595,18 @@ class TestDatabaseIntegration(unittest.TestCase):
         # Create backup
         backup_path = tempfile.mktemp(suffix='.db')
         try:
-            # Simple backup using SQLite backup
-            with self.db_manager._get_connection() as source_conn:
-                with sqlite3.connect(backup_path) as backup_conn:
+            # Simple backup using SQLite backup.
+            # closing() is required: a sqlite3 connection used as a context manager
+            # only commits, and an open connection locks the file on Windows
+            with closing(self.db_manager._get_connection()) as source_conn:
+                with closing(sqlite3.connect(backup_path)) as backup_conn:
                     source_conn.backup(backup_conn)
-            
+
             # Verify backup file exists and has data
             self.assertTrue(os.path.exists(backup_path))
-            
+
             # Verify backup contains our data
-            with sqlite3.connect(backup_path) as backup_conn:
+            with closing(sqlite3.connect(backup_path)) as backup_conn:
                 backup_conn.row_factory = sqlite3.Row
                 cursor = backup_conn.cursor()
                 
@@ -628,11 +641,12 @@ class TestDatabaseMigrations(unittest.TestCase):
     
     def tearDown(self):
         """Clean up test database"""
+        gc.collect()
         try:
             os.unlink(self.db_path)
         except FileNotFoundError:
             pass
-    
+
     def test_migration_execution(self):
         """Test execution of database migrations"""
         # Create connection and execute migrations manually
@@ -740,9 +754,9 @@ class TestDatabaseMigrations(unittest.TestCase):
         initial_created_at = initial_pub['created_at']
         initial_updated_at = initial_pub['updated_at']
         
-        # Wait a moment to ensure timestamp difference
+        # CURRENT_TIMESTAMP has one-second resolution, so wait for the next second
         import time
-        time.sleep(0.1)
+        time.sleep(1.1)
         
         # Update publication
         update_data = {

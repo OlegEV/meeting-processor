@@ -41,6 +41,7 @@ try:
     from config_loader import ConfigLoader
     from file_utils import FileUtils
     from web_templates import WebTemplates
+    from version import get_app_version
     from auth import create_auth_system, require_auth, get_current_user_id, \
         get_current_user, is_authenticated, is_current_user_admin
     from database import create_database_manager
@@ -247,6 +248,9 @@ class WorkingMeetingWebApp:
         
         # Teardown для очистки контекста
         self.app.teardown_appcontext(self.auth_teardown)
+
+        # Версия приложения доступна во всех шаблонах (выводится в левом нижнем углу)
+        self.app.context_processor(lambda: {'app_version': get_app_version()})
         
         logger.info("Middleware аутентификации настроен")
     
@@ -1044,7 +1048,7 @@ class WorkingMeetingWebApp:
                 return jsonify({
                     'status': 'healthy',
                     'timestamp': datetime.utcnow().isoformat(),
-                    'version': '1.0.0',
+                    'version': get_app_version(),
                     'database': {
                         'users_count': db_info.get('users_count', 0),
                         'jobs_count': db_info.get('jobs_count', 0),

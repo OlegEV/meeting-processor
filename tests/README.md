@@ -12,24 +12,24 @@ The test suite is organized into the following categories:
 - **[`test_database_models.py`](test_database_models.py)**: Database model validation and serialization
 - **[`test_confluence_client.py`](test_confluence_client.py)**: Confluence API client functionality
 - **[`test_confluence_encryption.py`](test_confluence_encryption.py)**: Token encryption and security
+- **[`test_protocol_generator.py`](test_protocol_generator.py)**: Participants context in protocol prompts
+- **[`test_admin_role.py`](test_admin_role.py)**: Admin role detection
+- **[`test_space_key_auto_extraction.py`](test_space_key_auto_extraction.py)**: Confluence page metadata extraction from URLs
 
 ### 2. Integration Tests
 - **[`test_database_integration.py`](test_database_integration.py)**: Database operations and relationships
 - **[`test_flask_integration.py`](test_flask_integration.py)**: Web application routes and authentication
 
-### 3. Frontend Tests
-- **[`test_frontend_ui.py`](test_frontend_ui.py)**: UI automation and JavaScript functionality
-
-### 4. Security Tests
+### 3. Security Tests
 - **[`test_security.py`](test_security.py)**: Security validation and vulnerability testing
 
-### 5. End-to-End Tests
+### 4. End-to-End Tests
 - **[`test_end_to_end.py`](test_end_to_end.py)**: Complete workflow validation
 
-### 6. Performance Tests
-- **[`test_performance.py`](test_performance.py)**: Load testing and performance validation
+### 5. Performance Tests
+- **[`test_performance.py`](test_performance.py)**: Timing of bulk database operations
 
-### 7. Test Infrastructure
+### 6. Test Infrastructure
 - **[`test_fixtures.py`](test_fixtures.py)**: Test data factories and mock objects
 - **[`__init__.py`](__init__.py)**: Test package initialization
 
@@ -46,20 +46,10 @@ The test suite is organized into the following categories:
 
 2. **Additional Dependencies**:
    ```bash
-   # For frontend testing
-   pip install selenium webdriver-manager
-
-   # For performance testing
-   pip install psutil
+   pip install pytest
 
    # For coverage reporting
-   pip install coverage pytest-cov
-   ```
-
-3. **Browser Setup** (for frontend tests):
-   ```bash
-   # Chrome/Chromium required for Selenium tests
-   # WebDriver will be automatically managed
+   pip install pytest-cov
    ```
 
 ### Running Tests
@@ -103,28 +93,13 @@ python -m pytest tests/test_performance.py -v -s
 python -m pytest tests/test_end_to_end.py -v -s
 ```
 
-**Frontend Tests**:
-```bash
-# Requires running web application
-python run_web.py &
-python -m pytest tests/test_frontend_ui.py -v -s
-```
+#### 3. Run Tests by Category
 
-#### 3. Run Tests with Different Configurations
-
-**Fast Tests Only** (exclude slow tests):
+Categories are defined in `run_tests.py` (`unit`, `integration`, `security`, `performance`, `e2e`):
 ```bash
-python -m pytest tests/ -v -m "not slow"
-```
-
-**Integration Tests Only**:
-```bash
-python -m pytest tests/ -v -m "integration"
-```
-
-**Security Tests Only**:
-```bash
-python -m pytest tests/ -v -m "security"
+python run_tests.py quick                                # unit only
+python run_tests.py --categories integration e2e --verbose
+python run_tests.py full                                 # all + coverage
 ```
 
 #### 4. Parallel Test Execution
@@ -183,11 +158,6 @@ Create `tests/test_config.json`:
     "enable_penetration_tests": true,
     "test_malicious_inputs": true,
     "timing_attack_samples": 1000
-  },
-  "frontend": {
-    "headless_browser": true,
-    "browser_timeout": 30,
-    "screenshot_on_failure": true
   }
 }
 ```
@@ -321,7 +291,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r confluence_requirements.txt
-        pip install pytest pytest-cov selenium webdriver-manager psutil
+        pip install pytest pytest-cov
     
     - name: Run unit tests
       run: |
@@ -419,30 +389,28 @@ Each test should include:
 
 ### Common Issues
 
-#### 1. Database Lock Errors
-```bash
-# Solution: Ensure proper database cleanup
+#### 1. Database Lock Errors (Windows)
+sqlite3 connections are closed only when garbage-collected, and Windows refuses
+to delete a database file that is still open. Drop the references and collect
+before removing temporary files:
+```python
 def tearDown(self):
-    if hasattr(self, 'db_manager'):
-        self.db_manager.close()
+    self.app = None          # or self.db_manager = None
+    gc.collect()
+    os.unlink(self.test_db.name)
 ```
 
-#### 2. Selenium WebDriver Issues
-```bash
-# Solution: Update WebDriver
-pip install --upgrade webdriver-manager
-
-# Or specify browser path
-export CHROME_BINARY_PATH="/usr/bin/chromium-browser"
+#### 2. Authentication in Flask Tests
+`AUTH_DEBUG_MODE` from a local `.env` overrides `auth.debug_mode` of the test
+config. Pin it while the app is created:
+```python
+with patch.dict(os.environ, {'AUTH_DEBUG_MODE': 'false'}):
+    app = WorkingMeetingWebApp(config_path)
 ```
+With debug mode off, authenticate requests by patching
+`app.token_validator.validate_request` to return `(True, user_info, None)`.
 
-#### 3. Performance Test Timeouts
-```bash
-# Solution: Adjust timeout settings
-export PERFORMANCE_TEST_TIMEOUT=300
-```
-
-#### 4. Mock Import Errors
+#### 3. Mock Import Errors
 ```bash
 # Solution: Check Python path
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
@@ -510,9 +478,8 @@ python -m pytest tests/ --forked
 python -m pytest tests/test_security.py -v
 
 # Run specific security categories
-python -m pytest tests/test_security.py::TestInputValidation -v
-python -m pytest tests/test_security.py::TestTokenSecurity -v
-python -m pytest tests/test_security.py::TestAccessControl -v
+python -m pytest tests/test_security.py::TestTokenEncryptionSecurity -v
+python -m pytest tests/test_security.py::TestAccessControlSecurity -v
 ```
 
 ## Reporting and Metrics

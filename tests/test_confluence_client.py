@@ -311,15 +311,15 @@ No date or topic information here"""
             meeting_topic='Confluence Integration Testing'
         )
         
-        self.assertEqual(title, '20250902 - Confluence Integration Testing')
+        self.assertEqual(title, '2025-09-02 Confluence Integration Testing')
     
     def test_generate_page_title_different_date_formats(self):
         """Test page title generation with different date formats"""
         test_cases = [
-            ('2025-09-02', '20250902'),
-            ('02.09.2025', '20250902'),
-            ('02/09/2025', '20250902'),
-            ('2.9.25', '20250902')
+            ('2025-09-02', '2025-09-02'),
+            ('02.09.2025', '2025-09-02'),
+            ('02/09/2025', '2025-09-02'),
+            ('2.9.25', '2025-09-02')
         ]
         
         for input_date, expected_date in test_cases:
@@ -327,7 +327,7 @@ No date or topic information here"""
                 meeting_date=input_date,
                 meeting_topic='Test Meeting'
             )
-            self.assertTrue(title.startswith(expected_date))
+            self.assertEqual(title, f'{expected_date} Test Meeting')
     
     def test_generate_page_title_no_date(self):
         """Test page title generation without date"""
@@ -337,7 +337,7 @@ No date or topic information here"""
         )
         
         # Should use current date
-        current_date = datetime.now().strftime('%Y%m%d')
+        current_date = datetime.now().strftime('%Y-%m-%d')
         self.assertTrue(title.startswith(current_date))
         self.assertIn('Test Meeting', title)
     
@@ -349,7 +349,7 @@ No date or topic information here"""
             fallback_filename='meeting_recording.mp3'
         )
         
-        self.assertEqual(title, '20250902 - meeting_recording.mp3')
+        self.assertEqual(title, '2025-09-02 meeting_recording.mp3')
     
     def test_generate_page_title_no_info(self):
         """Test page title generation without any info"""
@@ -358,8 +358,8 @@ No date or topic information here"""
             meeting_topic=None
         )
         
-        current_date = datetime.now().strftime('%Y%m%d')
-        self.assertEqual(title, f'{current_date} - Протокол встречи')
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        self.assertEqual(title, f'{current_date} Протокол встречи')
     
     def test_generate_page_title_special_characters(self):
         """Test page title generation with special characters in topic"""
@@ -397,7 +397,8 @@ class TestConfluenceServerClient(unittest.TestCase):
         
         self.assertEqual(client.config, self.config)
         self.assertIsNotNone(client.session)
-        self.assertEqual(client.session.auth, (self.config.username, self.config.api_token))
+        # Confluence Server authenticates with a Personal Access Token
+        self.assertEqual(client.session.headers['Authorization'], f'Bearer {self.config.api_token}')
     
     def test_client_validation_missing_base_url(self):
         """Test client validation with missing base_url"""
@@ -411,17 +412,18 @@ class TestConfluenceServerClient(unittest.TestCase):
         with self.assertRaises(ConfluenceValidationError):
             ConfluenceServerClient(invalid_config)
     
-    def test_client_validation_missing_username(self):
-        """Test client validation with missing username"""
-        invalid_config = ConfluenceConfig(
+    def test_client_username_is_optional(self):
+        """Username is not required: authentication uses the Personal Access Token"""
+        config = ConfluenceConfig(
             base_url='https://test.atlassian.net/wiki',
             username='',
             api_token='test_token_123',
             space_key='TEST'
         )
-        
-        with self.assertRaises(ConfluenceValidationError):
-            ConfluenceServerClient(invalid_config)
+
+        client = ConfluenceServerClient(config)
+
+        self.assertEqual(client.config.api_token, 'test_token_123')
     
     def test_client_validation_missing_api_token(self):
         """Test client validation with missing api_token"""
@@ -951,9 +953,11 @@ class TestConfluenceFactoryFunctions(unittest.TestCase):
             }
         }
         
-        client = create_confluence_client(config)
+        with patch.dict(os.environ, {'CONFLUENCE_API_TOKEN': 'test_token_123'}):
+            client = create_confluence_client(config)
         
         self.assertIsInstance(client, ConfluenceServerClient)
+        self.assertEqual(client.config.api_token, 'test_token_123')
         self.assertEqual(client.config.base_url, 'https://test.atlassian.net/wiki')
         self.assertEqual(client.config.username, 'test@example.com')
         self.assertEqual(client.config.space_key, 'TEST')
@@ -975,6 +979,22 @@ class TestConfluenceFactoryFunctions(unittest.TestCase):
         with self.assertRaises(ConfluenceValidationError):
             create_confluence_client(config)
     
+    def test_create_confluence_client_requires_env_token(self):
+        """Token is read only from CONFLUENCE_API_TOKEN, not from config"""
+        config = {
+            'confluence': {
+                'enabled': True,
+                'base_url': 'https://test.atlassian.net/wiki',
+                'api_token': 'test_token_123',
+                'space_key': 'TEST'
+            }
+        }
+
+        with patch.dict(os.environ):
+            os.environ.pop('CONFLUENCE_API_TOKEN', None)
+            with self.assertRaises(ConfluenceValidationError):
+                create_confluence_client(config)
+
     def test_create_confluence_client_with_encryption(self):
         """Test Confluence client creation with encrypted token"""
         # Create encrypted token
@@ -987,13 +1007,13 @@ class TestConfluenceFactoryFunctions(unittest.TestCase):
                 'enabled': True,
                 'base_url': 'https://test.atlassian.net/wiki',
                 'username': 'test@example.com',
-                'api_token': encrypted_token,
                 'encryption_key': encryption_key,
                 'space_key': 'TEST'
             }
         }
         
-        client = create_confluence_client(config)
+        with patch.dict(os.environ, {'CONFLUENCE_API_TOKEN': encrypted_token}):
+            client = create_confluence_client(config)
         
         self.assertIsInstance(client, ConfluenceServerClient)
         self.assertEqual(client.config.api_token, original_token)
@@ -1012,7 +1032,8 @@ class TestConfluenceFactoryFunctions(unittest.TestCase):
         
         mock_db_manager = Mock()
         
-        service = create_confluence_publication_service(config, mock_db_manager)
+        with patch.dict(os.environ, {'CONFLUENCE_API_TOKEN': 'test_token_123'}):
+            service = create_confluence_publication_service(config, mock_db_manager)
         
         self.assertIsInstance(service, ConfluencePublicationService)
         self.assertIsInstance(service.confluence_client, ConfluenceServerClient)
