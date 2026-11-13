@@ -1050,6 +1050,7 @@ class WorkingMeetingWebApp:
                     'timestamp': datetime.utcnow().isoformat(),
                     'version': get_app_version(),
                     'database': {
+                        'type': db_info.get('db_type', 'sqlite'),
                         'users_count': db_info.get('users_count', 0),
                         'jobs_count': db_info.get('jobs_count', 0),
                         'db_size_mb': db_info.get('db_size_mb', 0)
@@ -1686,7 +1687,7 @@ class WorkingMeetingWebApp:
                     try:
                         datetime.fromisoformat(start_date)
                         datetime.fromisoformat(end_date)
-                        date_filter = "j.created_at >= ? AND j.created_at < datetime(?, '+1 day')"
+                        date_filter = f"j.created_at >= ? AND j.created_at < {self.db_manager.sql_next_day()}"
                         date_params = (start_date, end_date)
                         start_dt = datetime.fromisoformat(start_date)
                         end_dt = datetime.fromisoformat(end_date)
@@ -1696,20 +1697,20 @@ class WorkingMeetingWebApp:
                         days_back = 30
                         start_date = None
                         end_date = None
-                        date_filter = "j.created_at >= datetime('now', '-30 days')"
+                        date_filter = f"j.created_at >= {self.db_manager.sql_days_ago(30)}"
                         date_params = ()
                 elif days_back:
                     if days_back < 1:
                         days_back = 30
                     elif days_back > 365:
                         days_back = 365
-                    date_filter = f"j.created_at >= datetime('now', '-{days_back} days')"
+                    date_filter = f"j.created_at >= {self.db_manager.sql_days_ago(days_back)}"
                     date_params = ()
                     start_date = None
                     end_date = None
                 else:
                     days_back = 30
-                    date_filter = "j.created_at >= datetime('now', '-30 days')"
+                    date_filter = f"j.created_at >= {self.db_manager.sql_days_ago(30)}"
                     date_params = ()
                     start_date = None
                     end_date = None

@@ -25,12 +25,15 @@ class TestRunner:
                 'tests/test_confluence_client.py',
                 'tests/test_confluence_encryption.py',
                 'tests/test_protocol_generator.py',
+                'tests/test_openrouter_client.py',
                 'tests/test_admin_role.py',
                 'tests/test_space_key_auto_extraction.py'
             ],
             'integration': [
                 'tests/test_database_integration.py',
-                'tests/test_flask_integration.py'
+                'tests/test_flask_integration.py',
+                # Тесты на сервере PostgreSQL выполняются при заданном TEST_DATABASE_URL
+                'tests/test_postgres_support.py'
             ],
             'security': [
                 'tests/test_security.py'

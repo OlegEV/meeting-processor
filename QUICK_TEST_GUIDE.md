@@ -33,11 +33,21 @@ python run_tests.py full
 | unit | `tests/test_space_key_auto_extraction.py` | извлечение `space_key` и `page_id` из URL Confluence |
 | integration | `tests/test_database_integration.py` | операции `DatabaseManager`, каскады, миграции |
 | integration | `tests/test_flask_integration.py` | маршруты Flask, аутентификация |
+| integration | `tests/test_postgres_support.py` | поддержка PostgreSQL и перенос данных из SQLite |
 | security | `tests/test_security.py` | шифрование токенов, изоляция пользователей, SQL-инъекции, XSS, обход путей |
 | performance | `tests/test_performance.py` | время массовых операций с базой |
 | e2e | `tests/test_end_to_end.py` | сквозные сценарии: загрузка → протокол → публикация в Confluence |
 
 `tests/test_fixtures.py` — фабрики тестовых данных, тестов не содержит.
+
+## Тесты PostgreSQL
+
+Часть тестов `tests/test_postgres_support.py` требует настоящий сервер PostgreSQL. Они выполняются, если задана переменная `TEST_DATABASE_URL`, и пропускаются без неё. Каждый тест создаёт отдельную временную схему и удаляет её.
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres \
+    python -m pytest tests/test_postgres_support.py -v
+```
 
 ## Как устроена аутентификация в тестах
 

@@ -19,6 +19,10 @@ services:
       - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
       - CLAUDE_API_KEY=${CLAUDE_API_KEY}
       - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN}
+      # PostgreSQL вместо SQLite: задайте DATABASE_URL в .env (см. POSTGRESQL_README.md).
+      # Пустое значение оставляет SQLite из config.json.
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-}
       - FLASK_ENV=production
       - AUTH_TOKEN_HEADER=X-Identity-Token
     restart: unless-stopped
@@ -31,10 +35,35 @@ services:
     networks:
       - meeting-network
 
+  # PostgreSQL (опционально): запускается только с профилем postgres
+  #   docker-compose --profile postgres up -d
+  # и DATABASE_URL=postgresql://meeting:<пароль>@postgres:5432/meeting_processor в .env
+  postgres:
+    image: postgres:16-alpine
+    container_name: meeting-processor-postgres
+    profiles: ["postgres"]
+    environment:
+      - POSTGRES_DB=meeting_processor
+      - POSTGRES_USER=meeting
+      # Без пароля контейнер PostgreSQL не запустится — задайте POSTGRES_PASSWORD в .env
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meeting -d meeting_processor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - meeting-network
+
 networks:
   meeting-network:
     driver: bridge
 
 volumes:
   logs:
+    driver: local
+  postgres_data:
     driver: local

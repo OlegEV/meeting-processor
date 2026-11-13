@@ -240,26 +240,31 @@ def clear_tables(config_file: str = "config.json"):
         with db_manager._get_connection() as conn:
             cursor = conn.cursor()
             
-            # Отключаем проверку внешних ключей для корректного удаления
-            cursor.execute("PRAGMA foreign_keys = OFF")
-            
-            # Очищаем таблицы в правильном порядке (сначала зависимые)
+            is_postgres = getattr(db_manager, 'is_postgres', False)
+
+            if not is_postgres:
+                # Отключаем проверку внешних ключей для корректного удаления
+                cursor.execute("PRAGMA foreign_keys = OFF")
+
+            # Очищаем таблицы в правильном порядке (сначала зависимые).
+            # В PostgreSQL зависимые строки удаляются каскадно по внешним ключам.
             tables_to_clear = ['jobs', 'users']
-            
+
             for table in tables_to_clear:
                 cursor.execute(f"DELETE FROM {table}")
                 deleted_count = cursor.rowcount
                 print(f"   ✅ Таблица '{table}': удалено {deleted_count} записей")
-            
-            # Сбрасываем счетчики автоинкремента (если таблица существует)
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'")
-            if cursor.fetchone():
-                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('jobs', 'users')")
-                print(f"   ✅ Сброшены счетчики автоинкремента")
-            
-            # Включаем обратно проверку внешних ключей
-            cursor.execute("PRAGMA foreign_keys = ON")
-            
+
+            if not is_postgres:
+                # Сбрасываем счетчики автоинкремента (если таблица существует)
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'")
+                if cursor.fetchone():
+                    cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('jobs', 'users')")
+                    print(f"   ✅ Сброшены счетчики автоинкремента")
+
+                # Включаем обратно проверку внешних ключей
+                cursor.execute("PRAGMA foreign_keys = ON")
+
             conn.commit()
         
         # Получаем информацию о базе данных после очистки

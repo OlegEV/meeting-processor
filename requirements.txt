@@ -1,5 +1,6 @@
-deepgram-sdk>=7.6.0,<8
-openai>=2.50,<3
+deepgram-sdk>=7.19.0,<8
+# Клиент LiteLLM-прокси / OpenRouter (OpenAI-совместимый API). Версия 3.x работает поверх httpx2.
+openai>=3.50,<4
 requests>=2.34.2
 python-dateutil>=2.9.0
 httpx>=0.28.1,<0.29
@@ -7,6 +8,9 @@ Flask>=3.1.3
 Werkzeug>=3.1.8
 gunicorn>=26.0.0
 PyJWT>=2.13.0
+
+# PostgreSQL (database.type = "postgresql"); для SQLite не требуется
+psycopg[binary]>=3.2,<4
 
 # Excel export
 openpyxl>=3.1.5

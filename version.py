@@ -8,7 +8,7 @@
 
 import os
 
-__version__ = "0.18"
+__version__ = "0.19"
 
 
 def get_app_version() -> str:

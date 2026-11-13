@@ -13,39 +13,62 @@ import json
 import threading
 
 from .models import User, Job, ConfluencePublication, DatabaseSchema, DatabaseValidator
+from . import pg_adapter
 
 logger = logging.getLogger(__name__)
 
+# Ключ advisory-блокировки PostgreSQL: миграции выполняет один процесс за раз
+# (при старте gunicorn каждый worker создаёт свой DatabaseManager)
+PG_MIGRATION_LOCK_KEY = 7204150322
+
+
 class DatabaseManager:
-    """Менеджер базы данных SQLite"""
-    
+    """
+    Менеджер базы данных: SQLite (по умолчанию) или PostgreSQL.
+
+    СУБД выбирается настройкой database.type ('sqlite' / 'postgresql') либо переменной
+    окружения DATABASE_URL с адресом PostgreSQL. SQL пишется в диалекте SQLite с
+    плейсхолдерами ``?``; для PostgreSQL их переводит database.pg_adapter, а выражения
+    с датами дают методы sql_days_ago() и sql_next_day().
+    """
+
     def __init__(self, config: Dict[str, Any]):
         """
         Инициализация менеджера базы данных
-        
+
         Args:
             config: Конфигурация базы данных
         """
         self.config = config
-        self.db_path = config.get('path', 'meeting_processor.db')
+        self.db_type = pg_adapter.resolve_database_type(config)
+        self.is_postgres = self.db_type == 'postgresql'
         self.backup_enabled = config.get('backup_enabled', True)
         self.backup_interval_hours = config.get('backup_interval_hours', 24)
-        
+
+        if self.is_postgres:
+            self._conninfo = pg_adapter.build_conninfo(config)
+            # db_path используется в логах и /health; пароль в него не попадает
+            self.db_path = pg_adapter.describe_conninfo(self._conninfo)
+        else:
+            self._conninfo = None
+            self.db_path = config.get('path', 'meeting_processor.db')
+
         # Thread lock для безопасности
         self._lock = threading.Lock()
-        
+
         # Инициализируем базу данных
         self._init_database()
-        
-        logger.info(f"Инициализирован менеджер базы данных: {self.db_path}")
-    
+
+        logger.info(f"Инициализирован менеджер базы данных ({self.db_type}): {self.db_path}")
+
     def _init_database(self):
         """Инициализирует базу данных"""
         try:
-            # Создаем директорию если не существует
-            db_dir = Path(self.db_path).parent
-            db_dir.mkdir(parents=True, exist_ok=True)
-            
+            if not self.is_postgres:
+                # Создаем директорию если не существует
+                db_dir = Path(self.db_path).parent
+                db_dir.mkdir(parents=True, exist_ok=True)
+
             # Выполняем миграции (они включают создание таблиц и индексов)
             self._run_migrations()
             
@@ -80,7 +103,12 @@ class DatabaseManager:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                
+
+                if self.is_postgres:
+                    # Блокировка до конца транзакции: параллельно стартующие процессы
+                    # не должны одновременно создавать одни и те же таблицы
+                    cursor.execute("SELECT pg_advisory_xact_lock(?)", (PG_MIGRATION_LOCK_KEY,))
+
                 # Создаем таблицу для отслеживания миграций если не существует
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -101,7 +129,7 @@ class DatabaseManager:
                     if version not in applied_migrations:
                         logger.info(f"Применение миграции версии {version}")
                         
-                        migration_sqls = DatabaseSchema.get_migration_sql(version)
+                        migration_sqls = DatabaseSchema.get_migration_sql(version, self.db_type)
                         for sql in migration_sqls:
                             if sql.strip():  # Пропускаем пустые SQL
                                 cursor.execute(sql)
@@ -121,13 +149,36 @@ class DatabaseManager:
             logger.error(f"Ошибка выполнения миграций: {e}")
             raise
     
-    def _get_connection(self) -> sqlite3.Connection:
-        """Получает соединение с базой данных"""
+    def _get_connection(self):
+        """
+        Получает соединение с базой данных.
+
+        Для PostgreSQL возвращается обёртка с интерфейсом sqlite3.Connection
+        (см. database.pg_adapter); блок ``with`` такое соединение ещё и закрывает.
+        """
+        if self.is_postgres:
+            return pg_adapter.connect(self._conninfo)
+
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row  # Для доступа к колонкам по имени
         conn.execute("PRAGMA foreign_keys = ON")  # Включаем внешние ключи
         return conn
-    
+
+    # Выражения SQL, которые различаются в SQLite и PostgreSQL
+
+    def sql_days_ago(self, days: int) -> str:
+        """Возвращает SQL-выражение «момент N дней назад» (UTC) для текущей СУБД"""
+        days = int(days)
+        if self.is_postgres:
+            return f"((NOW() AT TIME ZONE 'UTC') - INTERVAL '{days} days')"
+        return f"datetime('now', '-{days} days')"
+
+    def sql_next_day(self, placeholder: str = '?') -> str:
+        """Возвращает SQL-выражение «следующий день после даты из параметра» для текущей СУБД"""
+        if self.is_postgres:
+            return f"(CAST({placeholder} AS timestamp) + INTERVAL '1 day')"
+        return f"datetime({placeholder}, '+1 day')"
+
     # Методы для работы с пользователями
     
     def create_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -429,21 +480,21 @@ class DatabaseManager:
             # Определяем диапазон дат
             if start_date and end_date:
                 # Используем указанный диапазон дат
-                date_filter = "created_at >= ? AND created_at < datetime(?, '+1 day')"
-                date_filter_with_prefix = "j.created_at >= ? AND j.created_at < datetime(?, '+1 day')"
+                date_filter = f"created_at >= ? AND created_at < {self.sql_next_day()}"
+                date_filter_with_prefix = f"j.created_at >= ? AND j.created_at < {self.sql_next_day()}"
                 date_params = (start_date, end_date)
                 period_info = f"{start_date} - {end_date}"
             elif days_back:
                 # Используем days_back для обратной совместимости
-                date_filter = "created_at >= datetime('now', '-{} days')".format(days_back)
-                date_filter_with_prefix = "j.created_at >= datetime('now', '-{} days')".format(days_back)
+                date_filter = f"created_at >= {self.sql_days_ago(days_back)}"
+                date_filter_with_prefix = f"j.created_at >= {self.sql_days_ago(days_back)}"
                 date_params = ()
                 period_info = f"{days_back} days"
             else:
                 # По умолчанию 30 дней
                 days_back = 30
-                date_filter = "created_at >= datetime('now', '-30 days')"
-                date_filter_with_prefix = "j.created_at >= datetime('now', '-30 days')"
+                date_filter = f"created_at >= {self.sql_days_ago(30)}"
+                date_filter_with_prefix = f"j.created_at >= {self.sql_days_ago(30)}"
                 date_params = ()
                 period_info = "30 days"
             
@@ -615,12 +666,13 @@ class DatabaseManager:
                 placeholders = ', '.join(['?' for _ in columns])
                 values = [sanitized_data[col] for col in columns]
                 
-                sql = f"INSERT INTO confluence_publications ({', '.join(columns)}) VALUES ({placeholders})"
+                # RETURNING вместо cursor.lastrowid: работает и в SQLite (3.35+), и в PostgreSQL
+                sql = (f"INSERT INTO confluence_publications ({', '.join(columns)}) "
+                       f"VALUES ({placeholders}) RETURNING id")
                 cursor.execute(sql, values)
+                publication_id = cursor.fetchone()[0]
                 conn.commit()
-                
-                publication_id = cursor.lastrowid
-                
+
                 logger.info(f"Создана публикация Confluence: {publication_id} для задачи {sanitized_data['job_id']}")
                 
                 # Возвращаем созданную публикацию
@@ -822,13 +874,13 @@ class DatabaseManager:
             space_stats = [dict(row) for row in cursor.fetchall()]
             
             # Статистика по дням (последние 30 дней)
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT
                     DATE(created_at) as date,
                     COUNT(*) as publications_count,
                     SUM(CASE WHEN publication_status = 'published' THEN 1 ELSE 0 END) as published_count
                 FROM confluence_publications
-                WHERE created_at >= datetime('now', '-30 days')
+                WHERE created_at >= {self.sql_days_ago(30)}
                 GROUP BY DATE(created_at)
                 ORDER BY date DESC
             """)
@@ -853,10 +905,15 @@ class DatabaseManager:
         Returns:
             Путь к созданной резервной копии
         """
+        if self.is_postgres:
+            raise NotImplementedError(
+                "Резервное копирование PostgreSQL выполняется средствами СУБД (pg_dump), а не приложением"
+            )
+
         if not backup_path:
             timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
             backup_path = f"{self.db_path}.backup_{timestamp}"
-        
+
         with self._get_connection() as source:
             with sqlite3.connect(backup_path) as backup:
                 source.backup(backup)
@@ -875,8 +932,12 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             # Размер базы данных
-            db_size = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
-            
+            if self.is_postgres:
+                cursor.execute("SELECT pg_database_size(current_database())")
+                db_size = cursor.fetchone()[0]
+            else:
+                db_size = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
+
             # Количество записей в таблицах
             cursor.execute("SELECT COUNT(*) FROM users")
             users_count = cursor.fetchone()[0]
@@ -885,6 +946,7 @@ class DatabaseManager:
             jobs_count = cursor.fetchone()[0]
             
             return {
+                'db_type': self.db_type,
                 'db_path': self.db_path,
                 'db_size_bytes': db_size,
                 'db_size_mb': round(db_size / (1024 * 1024), 2),
