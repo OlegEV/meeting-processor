@@ -458,6 +458,15 @@ class WorkingMeetingWebApp:
 
         return participants
 
+    @staticmethod
+    def log_request_params(operation: str, **params):
+        """Пишет в лог параметры запроса на транскрибацию или генерацию протокола"""
+        try:
+            params_json = json.dumps(params, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            params_json = str(params)
+        logger.info(f"🧾 Параметры запроса [{operation}]: {params_json}")
+
     def get_job_participants(self, job: Dict[str, Any]) -> list:
         """Возвращает сохранённый в metadata задачи список участников"""
         metadata = job.get('metadata') if job else None
@@ -1126,6 +1135,7 @@ class WorkingMeetingWebApp:
                 try:
                     participants = self.parse_participants(request.form.get('participants'))
                 except ValueError as e:
+                    logger.warning(f"⚠️ Некорректное поле participants в запросе на загрузку (пользователь: {user_id}): {e}")
                     return jsonify({'error': str(e)}), 400
 
                 logger.info(f"📤 Получен файл для загрузки: '{file.filename}' (пользователь: {user_id}, модель: {selected_model})")
@@ -1147,6 +1157,17 @@ class WorkingMeetingWebApp:
                 user_upload_dir = self.upload_folder / user_id
                 user_upload_dir.mkdir(exist_ok=True)
                 file_path = user_upload_dir / f"{job_id}_{filename}"
+
+                self.log_request_params(
+                    'транскрибация',
+                    job_id=job_id,
+                    user_id=user_id,
+                    filename=original_filename,
+                    template=template_type,
+                    requested_model=request.form.get('model'),
+                    model=selected_model,
+                    participants=participants
+                )
 
                 logger.info(f"📝 Обработка имени файла:")
                 logger.info(f"   Оригинальное имя: '{original_filename}'")
@@ -1437,7 +1458,19 @@ class WorkingMeetingWebApp:
                 try:
                     participants = self.parse_participants(raw_participants)
                 except ValueError as e:
+                    logger.warning(f"⚠️ Некорректное поле participants в запросе на генерацию протокола {job_id}: {e}")
                     return jsonify({'error': str(e)}), 400
+
+            self.log_request_params(
+                'генерация протокола',
+                source_job_id=job_id,
+                user_id=get_current_user_id(),
+                template=new_template,
+                requested_model=request.form.get('model'),
+                model=selected_model,
+                participants=participants,
+                participants_source='запрос' if raw_participants and raw_participants.strip() else 'исходная задача'
+            )
 
             # Проверяем наличие транскрипта
             transcript_file = job.get('transcript_file')
@@ -1514,6 +1547,16 @@ class WorkingMeetingWebApp:
             elif not isinstance(metadata, dict):
                 metadata = {}
             metadata['model'] = selected_model
+
+            self.log_request_params(
+                'повторная генерация протокола',
+                job_id=job_id,
+                user_id=get_current_user_id(),
+                template=new_template,
+                requested_model=request.form.get('model'),
+                model=selected_model,
+                participants=metadata.get('participants', [])
+            )
 
             try:
                 with self.db_manager._get_connection() as conn:
