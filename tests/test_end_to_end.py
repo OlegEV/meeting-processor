@@ -499,15 +499,13 @@ Continue with performance testing and documentation.
         self.app.db_manager.create_job(job_data)
         
         with self.as_user(user2_data):
-            # Step 3: User 2 tries to access user 1's job
+            # Step 3: Status page is public by job GUID
             response = self.client.get(f'/status/{job_id}', headers=user2_headers)
-            # Should be denied (redirect)
-            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.status_code, 200)
 
-            # Step 4: User 2 tries to access via API
+            # Step 4: Status API is public by job GUID
             response = self.client.get(f'/api/status/{job_id}', headers=user2_headers)
-            # Should be denied
-            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.status_code, 200)
 
             # Step 5: Direct result links are public; this job has no transcript file
             response = self.client.get(f'/download/{job_id}/transcript', headers=user2_headers)
@@ -544,7 +542,7 @@ Continue with performance testing and documentation.
         
         # Step 2: Test accessing non-existent job
         response = self.client.get('/status/nonexistent_job', headers=self.auth_headers)
-        self.assertEqual(response.status_code, 302)  # Redirect due to not found
+        self.assertEqual(response.status_code, 404)
         
         response = self.client.get('/api/status/nonexistent_job', headers=self.auth_headers)
         self.assertEqual(response.status_code, 404)

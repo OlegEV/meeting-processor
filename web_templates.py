@@ -288,7 +288,7 @@ class WebTemplates:
                             </div>
                             <div class="row mb-3">
                                 <div class="col-12">
-                                    <a href="/chat/{{ job_id }}" class="btn btn-success w-100 mb-2">
+                                    <a href="{{ '/chat/' ~ job_id if can_act else '#' }}" class="btn btn-success w-100 mb-2{% if not can_act %} disabled{% endif %}"{% if not can_act %} aria-disabled="true" tabindex="-1"{% endif %}>
                                         <i class="fas fa-robot me-2"></i>Спросить у ИИ по транскрипту
                                     </a>
                                 </div>
@@ -318,6 +318,7 @@ class WebTemplates:
                                 </div>
                                 <div class="card-body">
                                     <form method="POST" action="/generate_protocol/{{ job_id }}">
+                                      <fieldset {% if not can_act %}disabled{% endif %}>
                                         <div class="row align-items-end">
                                             <div class="col-md-5">
                                                 <label for="new_template" class="form-label">Выберите шаблон:</label>
@@ -347,6 +348,7 @@ class WebTemplates:
                                                 </button>
                                             </div>
                                         </div>
+                                      </fieldset>
                                         <div class="form-text mt-2">
                                             <i class="fas fa-info-circle me-1"></i>
                                             Будет создан новый протокол на основе существующего транскрипта
@@ -363,6 +365,7 @@ class WebTemplates:
                                     </div>
                                     <div class="card-body">
                                         <form id="confluenceForm" method="POST" action="/publish_confluence/{{ job_id }}">
+                                          <fieldset {% if not can_act %}disabled{% endif %}>
                                             <div class="row">
                                                 <div class="col-md-12 mb-3">
                                                     <label for="base_page_url" class="form-label">
@@ -396,6 +399,7 @@ class WebTemplates:
                                                     </button>
                                                 </div>
                                             </div>
+                                          </fieldset>
                                         </form>
 
                                         <!-- Область для отображения результата публикации -->
@@ -423,6 +427,7 @@ class WebTemplates:
                                 </div>
                                 <div class="card-body">
                                     <form method="POST" action="/retry_protocol/{{ job_id }}">
+                                      <fieldset {% if not can_act %}disabled{% endif %}>
                                         <div class="row align-items-end">
                                             <div class="col-md-5">
                                                 <label for="retry_template" class="form-label">Шаблон протокола:</label>
@@ -450,6 +455,7 @@ class WebTemplates:
                                                 </button>
                                             </div>
                                         </div>
+                                      </fieldset>
                                         <div class="form-text mt-2">
                                             <i class="fas fa-info-circle me-1"></i>
                                             Транскрипт уже готов — будет предпринята повторная попытка сгенерировать протокол
@@ -705,8 +711,10 @@ class WebTemplates:
                 historySection.style.display = 'block';
             }
             
-            // Load publication history on page load
+            // Load publication history on page load (эндпоинт доступен только владельцу)
+            {% if can_act %}
             loadPublicationHistory();
+            {% endif %}
         });
         {% endif %}
     </script>

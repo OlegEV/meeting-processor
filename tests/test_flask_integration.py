@@ -310,9 +310,11 @@ class TestFlaskIntegration(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'test_meeting.mp3', response.data)
         self.assertIn(b'completed', response.data)
+        # У владельца кнопки действий активны
+        self.assertNotIn(b'<fieldset disabled>', response.data)
     
-    def test_status_page_unauthorized_job(self):
-        """Test status page for job belonging to another user"""
+    def test_status_page_other_user_job(self):
+        """Test status page is public by job GUID, like /view and /download"""
         # Create job for different user
         other_user_data = {
             'user_id': 'other_user',
@@ -327,15 +329,32 @@ class TestFlaskIntegration(unittest.TestCase):
             'filename': 'other_meeting.mp3',
             'template': 'standard',
             'status': 'completed',
-            'progress': 100
+            'progress': 100,
+            'transcript_file': '/tmp/other_transcript.txt'
         }
         self.app.db_manager.create_job(job_data)
-        
+
+        # Другой пользователь видит страницу статуса,
+        # но кнопки действий отключены; просмотр и скачивание остаются доступными
         response = self.client.get('/status/other_user_job', headers=self.auth_headers)
-        
-        # Should redirect to index with error
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'other_meeting.mp3', response.data)
+        self.assertIn(b'<fieldset disabled>', response.data)
+        self.assertIn(b'btn btn-success w-100 mb-2 disabled', response.data)
+        self.assertNotIn(b'href="/chat/other_user_job"', response.data)
+        self.assertIn(b'/view/other_user_job/transcript', response.data)
+        self.assertIn(b'/download/other_user_job/transcript', response.data)
+
+        # Несуществующая задача — 404
+        response = self.client.get('/status/missing_job', headers=self.auth_headers)
+        self.assertEqual(response.status_code, 404)
+
+        # Действия над чужой задачей остаются закрытыми
+        response = self.client.post('/generate_protocol/other_user_job',
+                                    data={'new_template': 'business'},
+                                    headers=self.auth_headers)
         self.assertEqual(response.status_code, 302)
-        self.assertIn('/', response.location)
+        self.assertIsNone(self.app.db_manager.get_job_by_id('other_user_job_protocol_business'))
     
     def test_api_status_endpoint(self):
         """Test API status endpoint"""
@@ -882,17 +901,19 @@ This is test content for viewing.
         }
         self.app.db_manager.create_job(other_job_data)
         
-        # Try to access other user's job
+        # Status page and status API are public by job GUID
         response = self.client.get('/status/isolation_job', headers=self.auth_headers)
-        
-        # Should be redirected (access denied)
-        self.assertEqual(response.status_code, 302)
-        
-        # Try to access other user's job via API
+        self.assertEqual(response.status_code, 200)
+
         response = self.client.get('/api/status/isolation_job', headers=self.auth_headers)
-        
-        # Should return 404
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 200)
+
+        # Other user's job stays out of the jobs list and the chat
+        response = self.client.get('/jobs', headers=self.auth_headers)
+        self.assertNotIn(b'isolation_test.mp3', response.data)
+
+        response = self.client.get('/chat/isolation_job', headers=self.auth_headers)
+        self.assertEqual(response.status_code, 302)
 
 
 class TestAuthenticationIntegration(unittest.TestCase):

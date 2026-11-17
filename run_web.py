@@ -1217,18 +1217,23 @@ class WorkingMeetingWebApp:
                 return redirect(url_for('index'))
         
         @self.app.route('/status/<job_id>')
-        @require_auth()
         def status(job_id: str):
-            """Страница статуса обработки"""
-            job = self.get_job_status(job_id)
+            """Публичная страница статуса обработки по GUID задачи"""
+            job = self.db_manager.get_job_by_id(job_id)
             if not job:
-                flash('Задача не найдена или у вас нет доступа к ней', 'error')
-                return redirect(url_for('index'))
-            
+                abort(404)
+
             templates = self.get_available_templates()
             available_models = self.get_available_models()
             current_model = self.get_job_model(job)
             stage = self.compute_job_stage(job)
+
+            # Действия над задачей доступны только владельцу и администратору;
+            # остальным кнопки действий показываются в disabled-состоянии
+            current_user_id = get_current_user_id()
+            can_act = bool(current_user_id) and (
+                job.get('user_id') == current_user_id or is_current_user_admin()
+            )
 
             return render_template_string(
                 self.templates.get_status_template(),
@@ -1237,16 +1242,16 @@ class WorkingMeetingWebApp:
                 stage=stage,
                 templates=templates,
                 available_models=available_models,
-                current_model=current_model
+                current_model=current_model,
+                can_act=can_act
             )
 
         @self.app.route('/api/status/<job_id>')
-        @require_auth(redirect_on_failure=False)
         def api_status(job_id: str):
-            """API для получения статуса задачи"""
-            job = self.get_job_status(job_id)
+            """Публичный API статуса задачи по GUID — его опрашивает страница статуса"""
+            job = self.db_manager.get_job_by_id(job_id)
             if not job:
-                return jsonify({'error': 'Job not found or access denied'}), 404
+                return jsonify({'error': 'Job not found'}), 404
 
             return jsonify({
                 'status': job['status'],

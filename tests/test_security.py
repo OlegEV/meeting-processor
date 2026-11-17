@@ -285,8 +285,7 @@ class TestAccessControlSecurity(unittest.TestCase):
             '/',
             '/jobs',
             '/statistics',
-            '/status/test_job',
-            '/api/status/test_job'
+            '/chat/test_job'
         ]
         
         for endpoint in protected_endpoints:
@@ -379,15 +378,22 @@ class TestAccessControlSecurity(unittest.TestCase):
         response = self.client.get('/api/status/user1_job', headers=user1_headers)
         self.assertEqual(response.status_code, 200)
 
-        # User 1 tries to access User 2's job
+        # Status page and status API are public by job GUID
         response = self.client.get('/status/user2_job', headers=user1_headers)
-        # Should be denied (redirect or 404)
-        self.assertIn(response.status_code, [302, 404])
-        
-        # User 1 tries to access User 2's job via API
+        self.assertEqual(response.status_code, 200)
+
         response = self.client.get('/api/status/user2_job', headers=user1_headers)
-        # Should be denied
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 200)
+
+        # Actions on User 2's job stay denied for User 1
+        response = self.client.get('/chat/user2_job', headers=user1_headers)
+        self.assertIn(response.status_code, [302, 404])
+
+        response = self.client.post('/generate_protocol/user2_job',
+                                    data={'new_template': 'business'},
+                                    headers=user1_headers)
+        self.assertIn(response.status_code, [302, 404])
+        self.assertIsNone(self.app.db_manager.get_job_by_id('user2_job_protocol_business'))
     
     def test_sql_injection_prevention(self):
         """Test prevention of SQL injection attacks"""
